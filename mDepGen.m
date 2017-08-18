@@ -343,22 +343,48 @@ function [Functions Nodes] = GetAllFunDefsAndCalls(File, Settings)
         % open the m-file:
         fid = fopen (File);
         Line = fgetl (fid);
-        % parse line by line %<<<2
+        % parse line by line and search only function definitions now %<<<2
         while not(feof(fid))
-                [newFunction, newNodes, FunctionsFound, CurrentFunction] = ParseLineGetNode(CurFileName, Line, LineNo, FunctionsFound, Settings.Specials, CurrentFunction);
-                if not( isempty(newFunction) || isempty(fieldnames(newFunction)) )
-                        Functions = [Functions newFunction];
+                Line = PrepareLine(Line);
+                % get function definition
+                FunctionDefinitionName = ParseLineGetFunctionDefinition(Line);
+                if ~isempty(FunctionDefinitionName)
+                        % function definition found, create new Function structure and set values:
+                        newFunction = struct();
+                        newFunction.Name = FunctionDefinitionName;
+                        newFunction.ID = GetFunctionID(CurFileName, newFunction.Name);
+                        % first found function is not subfunction:      
+                        % (this is probably an Assumption!)
+                        newFunction.SubFunction = not(not(FunctionsFound));
+                        newFunction.GraphName = GetFunctionGraphName(CurFileName, newFunction.Name, newFunction.SubFunction);
+                        % strfind -> strcmp XXX
+                        newFunction.Special = not(isempty(cell2mat(strfind(Specials, newFunction.Name))));
+                        % set flags for next loop iterations:
+                        CurrentFunction = newFunction.Name;
+                        FunctionsFound = FunctionsFound + 1;
+                        Line = '';
+                        if not( isempty(newFunction) || isempty(fieldnames(newFunction)) )
+                                Functions = [Functions newFunction];
+                        endif
                 endif
-                if not( isempty(newNodes) || isempty(fieldnames(newNodes)) )
-                        Nodes = [Nodes newNodes];
+                if ~isempty(Line)
+                        % if Line is not empty, add it to Lines for next loop:
+                        Lines{end+1} = Line;
+                        LineNumbers(end+1) = LineNo;
                 endif
-                % for next loop iteration
+                % for next loop iteration:
                 Line = fgetl(fid);
                 LineNo = LineNo+1;
         end
         fclose(fid);
-        % remove first empty structures:
+        % remove first empty structure:
         Functions(1) = [];
+        % second iteration searching for nodes. now all subfunctions are known therefore can be identified even if called without parenthesis:
+        for i = 1:length(Lines)
+                % XXXXXXXXXXXXXX
+                newNodes = ParseLineGetNode(CurFileName, CurFunctionName, Lines{i}, LineNo(i), FunctionsFound, Settings.Specials, CurrentFunction);
+        endfor
+        % remove first empty structure:
         Nodes(1) = [];
 
         % add to Nodes proper Parent and Children Function structures according found subfunctions %<<<2
@@ -406,74 +432,62 @@ function [Functions Nodes] = GetAllFunDefsAndCalls(File, Settings)
         Nodes = rmfield(Nodes, 'ChildrenFunctionName');
 endfunction % GetAllFunDefsAndCalls
 
-% ParseLineGetNode %<<<1
-function [newFunction, newNodes, FunctionsFound, CurrentFunction] = ParseLineGetNode(CurFileName, Line, LineNo, FunctionsFound, Specials, CurrentFunction)
-% parse line from script in file CurFileName and search for function definition Function or 
-% function call Node. FunctionsFound is number of already found functions, Specials is cell of string
-% of special functions, CurrentFunction is string of in which function the line is (for nodes, not for function definition)
-        % initialization:
-        newFunction = struct();
-        newNodes = struct();
+% PrepareLine %<<<1
+function Line = PrepareLine(Line)
+% removes strings and comments from line from m file
         % remove parts after comment characters from Line
         Line = strsplit(Line, '%'){1};
         Line = strsplit(Line, '#'){1};
         % remove content inside strings in between '' and "":
         Line = regexprep(Line, "'.*?'", "''");
         Line = regexprep(Line, '".*?"', '""');
-        % -------------------- parse line and identify function definition -------------------- %<<<2
-        FunctionDefinitionName = ParseLineGetFunctionDefinition(Line);
-        if ~isempty(FunctionDefinitionName)
-                % function definition found, create new Function structure and set values:
-                newFunction = struct();
-                newFunction.Name = FunctionDefinitionName;
-                newFunction.ID = GetFunctionID(CurFileName, newFunction.Name);
-                % first found function is not subfunction:      
-                % (this is probably an Assumption!)
-                newFunction.SubFunction = not(not(FunctionsFound));
-                newFunction.GraphName = GetFunctionGraphName(CurFileName, newFunction.Name, newFunction.SubFunction);
-                % strfind -> strcmp XXX
-                newFunction.Special = not(isempty(cell2mat(strfind(Specials, newFunction.Name))));
-                % set flags for next loop iterations:
-                CurrentFunction = newFunction.Name;
-                FunctionsFound = FunctionsFound + 1;
-        else
-                % function definition not found, search line for nodes (calling other function)
-                % -------------------- parse line and identify any function call -------------------- %<<<2
-                FunctionNames = ParseLineGetAnyFunctionCalls(Line);
-                if ~isempty(FunctionNames)
-                        for i = 1:length(FunctionNames)
-                                Node = struct();
-                                % what if function not yet found? e.g. in script? XXX
-                                Node.ParentFunctionName = CurrentFunction;
-                                Node.ParentFunction = [];
-                                Node.LineNo = LineNo;
-                                % fields of next two lines will be changed to proper values at the end of script:
-                                Node.ChildrenFunctionName = FunctionNames{i}; 
-                                Node.ChildrenFunction = [];
-                                newNodes(end+1) = Node;
-                        endfor % length(FunctionNames)
-                endif % ~isempty(FunctionNames)
-                % -------------------- parse line and identify any special functions calls -------------------- %<<<2
-                SpecialFunctionNames = ParseLineGetSpecialFunctionCalls(Line, Specials);
-                for i=1:length(SpecialFunctionNames)
+        % remove spaces to get empty string inf no real content:
+        Line = strtrim(Line);
+endfunction % PrepareLine
+
+% ParseLineGetNode %<<<1
+function [newNodes, CurrentFunction] = ParseLineGetNode(CurFileName, Line, LineNo, FunctionsFound, Specials, CurrentFunction)
+% parse line from script in file CurFileName and search for function definition Function or 
+% function call Node. FunctionsFound is number of already found functions, Specials is cell of string
+% of special functions, CurrentFunction is string of in which function the line is (for nodes, not for function definition)
+        % initialization:
+        newFunction = struct();
+        newNodes = struct();
+        % -------------------- parse line and identify any function call -------------------- %<<<2
+        FunctionNames = ParseLineGetAnyFunctionCalls(Line);
+        if ~isempty(FunctionNames)
+                for i = 1:length(FunctionNames)
                         Node = struct();
-                        % some special found
+                        % what if function not yet found? e.g. in script? XXX
                         Node.ParentFunctionName = CurrentFunction;
                         Node.ParentFunction = [];
                         Node.LineNo = LineNo;
                         % fields of next two lines will be changed to proper values at the end of script:
-                        Node.ChildrenFunctionName = Specials{i};
+                        Node.ChildrenFunctionName = FunctionNames{i}; 
                         Node.ChildrenFunction = [];
-                        % try to find if this node already exists (i.e. has been added in previous section
-                        % identifying any (not only Special) function call). it is to prevent duplicate values:
-                        if not(any(arrayfun(@isequal, newNodes, Node)))
-                                % node do not exist, add it:
-                                newNodes(end+1) = Node;
-                        endif
-                endfor % length(SpecialFunctionNames)
-                % remove first element because of struct initialization newNodes = struct()
-                newNodes = newNodes(2:end);
-        endif % ~isempty(FunctionDefinitionName)
+                        newNodes(end+1) = Node;
+                endfor % length(FunctionNames)
+        endif % ~isempty(FunctionNames)
+        % -------------------- parse line and identify any special functions calls -------------------- %<<<2
+        SpecialFunctionNames = ParseLineGetSpecialFunctionCalls(Line, Specials);
+        for i=1:length(SpecialFunctionNames)
+                Node = struct();
+                % some special found
+                Node.ParentFunctionName = CurrentFunction;
+                Node.ParentFunction = [];
+                Node.LineNo = LineNo;
+                % fields of next two lines will be changed to proper values at the end of script:
+                Node.ChildrenFunctionName = Specials{i};
+                Node.ChildrenFunction = [];
+                % try to find if this node already exists (i.e. has been added in previous section
+                % identifying any (not only Special) function call). it is to prevent duplicate values:
+                if not(any(arrayfun(@isequal, newNodes, Node)))
+                        % node do not exist, add it:
+                        newNodes(end+1) = Node;
+                endif
+        endfor % length(SpecialFunctionNames)
+        % remove first element because of struct initialization newNodes = struct()
+        newNodes = newNodes(2:end);
 endfunction % ParseLineGetNode
 
 % ParseLineGetFunctionDefinition %<<<1

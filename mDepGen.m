@@ -2,15 +2,15 @@
 ##
 
 ## -*- texinfo -*-
-## @deftypefn  {Function File} @var{} = mDepGen (@var{inDir}, @var{MainFunction})
-## @deftypefnx {Function File} @var{} = mDepGen (@var{inDir}, @var{MainFunction}, @var{GraphFileName})
-## @deftypefnx {Function File} @var{} = mDepGen (@var{inDir}, @var{MainFunction}, @var{GraphFileName}, @var{Specials})
+## @deftypefn  {Function File} @var{} = mDepGen (@var{inDir}, @var{StartFunction})
+## @deftypefnx {Function File} @var{} = mDepGen (@var{inDir}, @var{StartFunction}, @var{GraphFileName})
+## @deftypefnx {Function File} @var{} = mDepGen (@var{inDir}, @var{StartFunction}, @var{GraphFileName}, @var{Specials})
 ## @deftypefnx {Function File} @var{} = mDepGen (..., @var{property}, @var{value})
 ## 
 ## Input variables:
 ## @table @samp
 ## @item @var{inDir} - Directory containing m-files to be processed.
-## @item @var{MainFunction} - file name of a main function of the
+## @item @var{StartFunction} - file name of a starting function of the
 ##      dependency. Either a full path to the m-file or only a file name.
 ##      In the last case a @var{inDir} will be prepended to the file name.
 ## @item @var{GraphFileName} - file name of a resulted graph. Either 
@@ -59,23 +59,21 @@
 %
 % structure Function (like Parent, Children):
 %     .Name - Name of function as used in script file.
-%     .ID - Identificator of function. Composition of file name 
-%               (without .m extension), separator and function 
-%               name. See function GetFunctionID.
-%     .SubFunction - Nonzero if function is subfunction (second function 
-%               in function or script file).
-%     .GraphName - Name of function as will appear in graph. See
-%               function GetFunctionGraphName.
-%     .Special - Nonzero if function is special (i.e. set as input parameter
-%               or same name as some m-file.
+%     .ID - Identificator of function. Composition of file name (without .m extension), separator and function name. See function GetFunctionID.
+%     .GraphName - Name of function as will appear in graph. See function GetFunctionGraphName.
+%     .Special - Nonzero if function is set as Special by user.
+%     .MainFunction - Nonzero if function is the main function in a m-file with multiple functions.
+%     .SubFunction - Nonzero if function is the sub function in a m-file with multiple functions.
+%     .Forbidden - Nonzero if function is set as Forbidden by user.
+%     .FilePathName - file path and name of the file where the function is.
+%     .LineNo - line number of the definition of the function.
 %
 % structure Node (where calling of function happens)
 %     .ParentFunction - structure Function describing function where the call happens.
-%     .ChildrenFunctionName - name of called function - this is needed only temporary, because during parsing
-%               of the m-file it is not yet known if the called function is subfunction or not. After all parsing
-%               the .ChildrenFunction is filled in properly.
 %     .ChildrenFunction - structure Function describing called function.
+%     .ChildrenFunctionName - name of called function - this is needed only temporary, because during parsing of m-files details of children functions is not yet known. After all parsing the .ChildrenFunction is filled in properly.
 %     .LineNo - Line number where the call happens.
+%     .FilePathName - file path and name of the file where the node is.
 %
 % structure Settings (settings of all various things)
 %       .GraphType - which type of graph will be plotted. either 'dependency' or 'flowchart'
@@ -93,19 +91,19 @@
 % plot only specials
 
 % mDepGen %<<<1
-function mDepGen(inDir, MainFunction, GraphFile='Graph', Specials={''}, Forbidden={''}, varargin)
+function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden={}, varargin)
         % only for testing: %<<<2
         inDir = 'test_functions_complex';
-        MainFunction = 'test_functions_complex/main.m';
+        StartFunction = 'test_functions_complex/main.m';
         GraphFileName = 'test_functions_complex';
         Specials = {''};
 
         inDir = 'test_functions_simple';
-        MainFunction = 'test_functions_simple/main.m';
+        StartFunction = 'test_functions_simple/main.m';
         GraphFileName = 'test_functions_simple';
 
         inDir = '.';
-        MainFunction = 'mDepGen.m';
+        StartFunction = 'mDepGen.m';
         GraphFileName = 'mDepGen';
 
         % -------------------- format and check inputs -------------------- %<<<2
@@ -114,19 +112,19 @@ function mDepGen(inDir, MainFunction, GraphFile='Graph', Specials={''}, Forbidde
         if exist(inDir, 'dir') ~= 7
                 error(['Input directory `' inDir '` not found!'])
         endif
-        % format and check main function file name %<<<3
-        [di na ex] = fileparts(MainFunction);
-        % if main function is only file name:
+        % format and check start function file name %<<<3
+        [di na ex] = fileparts(StartFunction);
+        % if start function is only file name:
         if isempty(di)
                 % prepend full path to it:
-                MainFunction = fullfile(inDir, MainFunction);
+                StartFunction = fullfile(inDir, StartFunction);
         endif
-        % check main function existence
+        % check start function existence
         if not(exist(inDir, 'file'))
-                error(['Main function `' MainFunction '` not found!'])
+                error(['Starting function `' StartFunction '` not found!'])
         endif
-        MainFunctionFullPath = MainFunction;
-        MainFunctionName = na;
+        StartFunctionFullPath = StartFunction;
+        StartFunctionName = na;
         % format and check output graph file name %<<<3
         [di na ex] = fileparts(GraphFile);
         % if graph is only file name:
@@ -147,6 +145,8 @@ function mDepGen(inDir, MainFunction, GraphFile='Graph', Specials={''}, Forbidde
         if not(iscellstr(Forbidden))
                 error('`Forbidden` must be a cell of character strings!')
         endif
+        % remove empty cells:
+        Forbidden = Forbidden(not(cellfun('isempty', Forbidden)));
         Settings.Forbidden = Forbidden;
         % format and check variable arguments %<<<3
         [reg, ...
@@ -164,18 +164,18 @@ function mDepGen(inDir, MainFunction, GraphFile='Graph', Specials={''}, Forbidde
 
         % -------------------- files parsing -------------------- %<<<2
         % search all .m files in input directory and subdirectories:
-        mFiles = GetAllmFiles(inDir, '.*.m$');
-        [tmp1 tmp2 tmp3] = cellfun(@fileparts, mFiles, 'UniformOutput', false);
+        mFilesPathNames = GetAllmFiles(inDir, '.*.m$');
+        [tmp1 tmp2 tmp3] = cellfun(@fileparts, mFilesPathNames, 'UniformOutput', false);
         % add all found file names to settings so they can be found even if not called followed by parenthesis
         Settings.mFileNames = tmp2(:);
         % remove empty cells:
         Settings.mFileNames = Settings.mFileNames(not(cellfun('isempty', Settings.mFileNames)));
         % in all m-files find functions and nodes: 
-        [Functions Nodes] = cellfun(@GetAllFunDefsAndCalls, mFiles, {Settings}, 'UniformOutput', 0);
+        [Functions Nodes] = cellfun(@GetAllFunDefsAndCalls, mFilesPathNames, {Settings}, 'UniformOutput', 0);
         % now the Functions is cell containing Function structures, one cell per file, and
         % Nodes is cell containing Node structures, one cell per file. Nodes are as found in file, i.e.
         % if something is called multiple times, it is multiple times in Nodes.
-        disp([num2str(length([Functions{:}])) " function definitions and " num2str(length([Nodes{:}])) " calls (nodes) found"])
+        disp(["Files scanned. " num2str(length([Functions{:}])) " function definitions and " num2str(length([Nodes{:}])) " calls (nodes) found in " num2str(length(mFilesPathNames)) " m-files."])
 
         % OBSOLETE, delete: %<<<2
         % method=0
@@ -220,18 +220,18 @@ function mDepGen(inDir, MainFunction, GraphFile='Graph', Specials={''}, Forbidde
                 % deduplicate and sort:
                 SortedAllNodes = SortNodesByParent(AllNodes);
                 % now SortedAllNodes is cell, one cell per function, with unique Nodes.
-                % Find first parent - cell with nodes belonging to main function:
+                % Find first parent - cell with nodes belonging to start function:
                 ind = [];
                 for j = 1:length(SortedAllNodes)
-                        % XXX here should be comparison against filenamepart of MainFunction, but it contains whole path and extension
-                        ind(j) = strcmp(MainFunctionName, SortedAllNodes{j}(1).ParentFunction.Name);
+                        % XXX here should be comparison against filenamepart of StartFunction, but it contains whole path and extension
+                        ind(j) = strcmp(StartFunctionName, SortedAllNodes{j}(1).ParentFunction.Name);
                 endfor
                 if not(any(ind))
-                        error(['Main function `' MainFunctionName '` not found in Sorted Nodes. Check input parameter `MainFunction`.'])
+                        error(['Starting function `' StartFunctionName '` not found in Sorted Nodes. Check input parameter `StartFunction`.'])
                 endif
                 id = find(ind);
                 if length(id) > 2
-                        error('Multiple cells containing the main function were found. Sorting is not working properly. This is internal error.')
+                        error('Multiple cells containing the start function were found. Sorting is not working properly. This is internal error.')
                 endif
                 % prepare recursion:
                 Parent = SortedAllNodes{id}(1).ParentFunction;
@@ -308,7 +308,7 @@ function fileList = GetAllmFiles(dirName, pattern = '.*')
 endfunction % getAllmFiles
 
 % GetAllFunDefsAndCalls %<<<1
-function [Functions Nodes] = GetAllFunDefsAndCalls(File, Settings)
+function [newFunctions newNodes] = GetAllFunDefsAndCalls(FilePathName, Settings)
 % In a file, finds all functions defined and all callings of other funtions (Nodes).
 % Function have to be defined as `function somefunction(`.
 % Called functions must be called as `somefunction(` to be found.
@@ -316,21 +316,25 @@ function [Functions Nodes] = GetAllFunDefsAndCalls(File, Settings)
 
         % prepare structures for easy array building:
         % (this will prevent adding structures into array with different fields)
-        Functions.ID = '';
-        Functions.Name = '';
-        Functions.GraphName = '';
-        Functions.SubFunction = 0;
-        Functions.Special = 0;
+        newFunctions.Name = '';
+        newFunctions.ID = '';
+        newFunctions.GraphName = '';
+        newFunctions.Special = 0;
+        newFunctions.MainFunction = 0;
+        newFunctions.SubFunction = 0;
+        newFunctions.Forbidden = 0;
+        newFunctions.FilePathName = '';
+        newFunctions.LineNo = 0;
 
         % following two fields are only temporary and are removed at the end:
-        Nodes.ParentFunctionName = [];
-        Nodes.ChildrenFunctionName = [];
-        Nodes.ParentFunction = [];
-        Nodes.ChildrenFunction = [];
-        Nodes.LineNo = 0;
+        newNodes.ParentFunction = [];
+        newNodes.ChildrenFunction = [];
+        newNodes.ChildrenFunctionName = [];
+        newNodes.LineNo = 0;
+        newNodes.FilePathName = '';
 
         % get name of current m-file:
-        [tmp tmp2 tmp3] = fileparts(File);
+        [tmp tmp2 tmp3] = fileparts(FilePathName);
         CurFileName = tmp2;
 
         % number of current line in m-file:
@@ -338,34 +342,41 @@ function [Functions Nodes] = GetAllFunDefsAndCalls(File, Settings)
         % if any function in a m-file was already found or not:
         FunctionsFound = 0;
         % name of current function in a m-file:
-        CurrentFunction = '';
+        CurrentFunctionName = '';
+        % line numbers of function definitions for easy use in second parsing through the file:
+        newFunctionsLineNo = [];
 
         % open the m-file:
-        fid = fopen (File);
+        fid = fopen (FilePathName);
         Line = fgetl (fid);
-        % parse line by line and search only function definitions now %<<<2
+        % parse line by line and search now only function definitions %<<<2
         while not(feof(fid))
+                % strip lines of comments and content inside strings:
                 Line = PrepareLine(Line);
                 % get function definition
-                FunctionDefinitionName = ParseLineGetFunctionDefinition(Line);
+                FunctionDefinitionName = ParseLineGetFunctionDefinitions(Line);
                 if ~isempty(FunctionDefinitionName)
                         % function definition found, create new Function structure and set values:
                         newFunction = struct();
                         newFunction.Name = FunctionDefinitionName;
                         newFunction.ID = GetFunctionID(CurFileName, newFunction.Name);
-                        % first found function is not subfunction:      
+                        % first found function is main function:
                         % (this is probably an Assumption!)
                         newFunction.SubFunction = not(not(FunctionsFound));
+                        newFunction.MainFunction = not(newFunction.SubFunction);
                         newFunction.GraphName = GetFunctionGraphName(CurFileName, newFunction.Name, newFunction.SubFunction);
-                        % strfind -> strcmp XXX
-                        newFunction.Special = not(isempty(cell2mat(strfind(Specials, newFunction.Name))));
+                        newFunction.Special = not(isempty(cell2mat(strcmp(Settings.Specials, newFunction.Name))));
+                        newFunction.Forbidden = not(isempty(cell2mat(strcmp(Settings.Forbidden, newFunction.Name))));
+                        newFunction.FilePathName = FilePathName;
+                        newFunction.LineNo = LineNo;
                         % set flags for next loop iterations:
-                        CurrentFunction = newFunction.Name;
+                        CurrentFunctionName = newFunction.Name;
                         FunctionsFound = FunctionsFound + 1;
                         Line = '';
-                        if not( isempty(newFunction) || isempty(fieldnames(newFunction)) )
-                                Functions = [Functions newFunction];
-                        endif
+                                % if not( isempty(newFunction) || isempty(fieldnames(newFunction)) ) % XXX tohle je zbytecne?
+                        newFunctions = [newFunctions newFunction];
+                        newFunctionsLineNo = [newFunctionsLineNo LineNo];
+                                % endif
                 endif
                 if ~isempty(Line)
                         % if Line is not empty, add it to Lines for next loop:
@@ -374,63 +385,94 @@ function [Functions Nodes] = GetAllFunDefsAndCalls(File, Settings)
                 endif
                 % for next loop iteration:
                 Line = fgetl(fid);
-                LineNo = LineNo+1;
+                LineNo = LineNo + 1;
         end
         fclose(fid);
         % remove first empty structure:
-        Functions(1) = [];
-        % second iteration searching for nodes. now all subfunctions are known therefore can be identified even if called without parenthesis:
-        for i = 1:length(Lines)
-                % XXXXXXXXXXXXXX
-                newNodes = ParseLineGetNode(CurFileName, CurFunctionName, Lines{i}, LineNo(i), FunctionsFound, Settings.Specials, CurrentFunction);
-        endfor
-        % remove first empty structure:
-        Nodes(1) = [];
+        newFunctions(1) = [];
 
-        % add to Nodes proper Parent and Children Function structures according found subfunctions %<<<2
-        % i.e. if Node.ChildrenFunctionName = external_function, output will be external_function>external_function,
-        % but if Node.ChildrenFunctionName = sub_function, output will be cur_file_name>sub_function
-        % found subfunctions:
-        SubFunctions = {Functions.Name}([Functions.SubFunction]);
-        for i = 1:length(Nodes)
-                % parent %<<<3
-                Parent = [];
-                Parent.Name = Nodes(i).ParentFunctionName;
-                % XXX tady to nekdy dela problem? asi kdyz zadne funkce a subfunkce nejsou nalezeny
-                Parent.SubFunction = any(strcmp(Nodes(i).ParentFunctionName, SubFunctions));
-                if Parent.SubFunction
-                        Parent.ID = GetFunctionID(CurFileName, Parent.Name);
-                        Parent.GraphName = GetFunctionGraphName(CurFileName, Parent.Name, 1);
-                else
-                        % assupmtion: if parent function is not subfunction, the file name 
-                        % and function name is the same.
-                        Parent.ID = GetFunctionID(Parent.Name, Parent.Name);
-                        Parent.GraphName = GetFunctionGraphName(Parent.Name, Parent.Name, 0);
-                endif
-                Parent.Special = any(strcmp(Parent.Name, Settings.Specials));
-                Nodes(i).ParentFunction = Parent;
-                % children %<<<3
-                Children = [];
-                Children.Name = Nodes(i).ChildrenFunctionName;
-                % XXX tady to nekdy dela problem? asi kdyz zadne funkce a subfunkce nejsou nalezeny
-                Children.SubFunction = any(strcmp(Nodes(i).ChildrenFunctionName, SubFunctions));
-                if Children.SubFunction
-                        Children.ID = GetFunctionID(CurFileName, Children.Name);
-                        Children.GraphName = GetFunctionGraphName(CurFileName, Children.Name, 1);
-                else
-                        % assupmtion: if called function is not subfunction, the file name 
-                        % and function name is the same.
-                        Children.ID = GetFunctionID(Children.Name, Children.Name);
-                        Children.GraphName = GetFunctionGraphName(Children.Name, Children.Name, 0);
-                endif
-                Children.Special = any(strcmp(Children.Name, Settings.Specials));
-                Nodes(i).ChildrenFunction = Children;
-                % >>>3
-        endfor
-        % remove excess fields:
-        Nodes = rmfield(Nodes, 'ParentFunctionName');
-        Nodes = rmfield(Nodes, 'ChildrenFunctionName');
-endfunction % GetAllFunDefsAndCalls
+        % searching for nodes %<<<2
+        % now all subfunctions are known therefore can be identified even if called without parenthesis
+        for i = 1:length(Lines)
+                % XXXXXXXXXXXXXX mfilenames are not put into settings and are not found if called without parenthesis!!!!!!
+                % get function calls followed by bracket like function(...):
+                [Calls1, Lines{i}]= ParseLineGetFunctionCallsWithParenthesis(Lines{i});
+                % get function calls of found functions/subfunctions of current file:
+                [Calls2, Lines{i}]= ParseLineGetDefinedFunctionCalls(Lines{i}, {newFunctions.Name});
+                % get function calls of Specials:
+                [Calls3, Lines{i}]= ParseLineGetDefinedFunctionCalls(Lines{i}, Settings.Specials);
+                % get function calls of Forbidden:
+                [Calls4, Lines{i}]= ParseLineGetDefinedFunctionCalls(Lines{i}, Settings.Forbidden);
+                Calls = unique([Calls1 Calls2 Calls3 Calls4]);
+                if ~isempty(Calls)
+                        % generate nodes from Calls
+                        for j = 1:length(Calls)
+                                % get parent function name (current line number is LineNumbers(i)):
+                                id = find(newFunctionsLineNo < LineNumbers(i));
+                                if ~isempty(id)
+                                        newNode.ParentFunction = newFunctions(id(end));
+                                else
+                                        error('fixme')
+                                        % it means script was found XXXX what shall be done?
+                                endif
+                                newNode.ChildrenFunction = struct();
+                                newNode.ChildrenFunctionName = Calls{j};
+                                newNode.LineNo = LineNo;
+                                newNode.FilePathName = FilePathName;
+                                newNodes = [newNodes newNode];
+                        endfor % length(Calls)
+                endif % ~isempty(Calls)
+        endfor % length(Lines)
+        % remove first empty structure:
+        newNodes(1) = [];
+endfunction
+
+
+% XXX this will be done after all functions are known. parent is not needed to add anymore.
+%         % add to Nodes proper Parent and Children Function structures according found subfunctions %<<<2
+%         % i.e. if Node.ChildrenFunctionName = external_function, output will be external_function>external_function,
+%         % but if Node.ChildrenFunctionName = sub_function, output will be cur_file_name>sub_function
+%         % found subfunctions:
+%         SubFunctions = {Functions.Name}([Functions.SubFunction]);
+%         for i = 1:length(Nodes)
+%                 % parent %<<<3
+%                 Parent = [];
+%                 Parent.Name = Nodes(i).ParentFunctionName;
+%                 % XXX tady to nekdy dela problem? asi kdyz zadne funkce a subfunkce nejsou nalezeny
+%                 Parent.SubFunction = any(strcmp(Nodes(i).ParentFunctionName, SubFunctions));
+%                 if Parent.SubFunction
+%                         Parent.ID = GetFunctionID(CurFileName, Parent.Name);
+%                         Parent.GraphName = GetFunctionGraphName(CurFileName, Parent.Name, 1);
+%                 else
+%                         % assupmtion: if parent function is not subfunction, the file name 
+%                         % and function name is the same.
+%                         Parent.ID = GetFunctionID(Parent.Name, Parent.Name);
+%                         Parent.GraphName = GetFunctionGraphName(Parent.Name, Parent.Name, 0);
+%                 endif
+%                 Parent.Special = any(strcmp(Parent.Name, Settings.Specials));
+%                 Nodes(i).ParentFunction = Parent;
+%                 % children %<<<3
+%                 Children = [];
+%                 Children.Name = Nodes(i).ChildrenFunctionName;
+%                 % XXX tady to nekdy dela problem? asi kdyz zadne funkce a subfunkce nejsou nalezeny
+%                 Children.SubFunction = any(strcmp(Nodes(i).ChildrenFunctionName, SubFunctions));
+%                 if Children.SubFunction
+%                         Children.ID = GetFunctionID(CurFileName, Children.Name);
+%                         Children.GraphName = GetFunctionGraphName(CurFileName, Children.Name, 1);
+%                 else
+%                         % assupmtion: if called function is not subfunction, the file name 
+%                         % and function name is the same.
+%                         Children.ID = GetFunctionID(Children.Name, Children.Name);
+%                         Children.GraphName = GetFunctionGraphName(Children.Name, Children.Name, 0);
+%                 endif
+%                 Children.Special = any(strcmp(Children.Name, Settings.Specials));
+%                 Nodes(i).ChildrenFunction = Children;
+%                 % >>>3
+%         endfor
+%         % remove excess fields:
+%         Nodes = rmfield(Nodes, 'ParentFunctionName');
+%         Nodes = rmfield(Nodes, 'ChildrenFunctionName');
+% endfunction % GetAllFunDefsAndCalls
 
 % PrepareLine %<<<1
 function Line = PrepareLine(Line)
@@ -490,8 +532,8 @@ function [newNodes, CurrentFunction] = ParseLineGetNode(CurFileName, Line, LineN
         newNodes = newNodes(2:end);
 endfunction % ParseLineGetNode
 
-% ParseLineGetFunctionDefinition %<<<1
-function FunctionDefinitionName = ParseLineGetFunctionDefinition(Line)
+% ParseLineGetFunctionDefinitions %<<<1
+function FunctionDefinitionName = ParseLineGetFunctionDefinitions(Line)
 % parse line and return function name from function definition if any found
 % XXX what if more functions at a line? this can find only one function definition at a line. Assumption!
         FunctionDefinitionName = '';
@@ -514,14 +556,19 @@ function FunctionDefinitionName = ParseLineGetFunctionDefinition(Line)
         if ~isempty(T)
                 FunctionDefinitionName = T{1}{1};
         endif
-endfunction % ParseLineGetFunctionDefinition
+endfunction % ParseLineGetFunctionDefinitions
 
 % ParseLineGetAnyFunctionCalls %<<<1
-function FunctionNames = ParseLineGetAnyFunctionCalls(Line)
-% parse line and return function name from function call if any found
+function [Calls, Line]= ParseLineGetFunctionCallsWithParenthesis(Line)
+% parse line and return function names from function calls if any found
+% found function calls are replaced by spaces (together with left bracket)
+% function has to be in a form:
+%   single [a-zA-Z], maybe followed by [a-zA-Z_0-9], maybe followed by spaces, has to be followed by '('
+%   the right bracket is not required (multiline statements)
 % XXX this finds everything, even something like: variable(5) = 5
-% XXX takes also things in '' and ""
-        [S, E, TE, M, FunctionNames, NM, SP] = regexpi (Line, '([a-zA-Z_][a-zA-Z_0-9]*)\s*\(.*?\)');
+        % regular expression:
+        Calls = {};
+        [S, E, TE, M, T, NM, SP] = regexpi (Line, '([a-zA-Z_][a-zA-Z_0-9]*)\s*\(');
         % testing lines for this regexp: %<<<2
         %aaa=f(iii)
         %aaa=fun(iii)
@@ -533,24 +580,36 @@ function FunctionNames = ParseLineGetAnyFunctionCalls(Line)
         %aaa = 5.*6fun(iii)
         %aaa = 5.*f6(iii)
         %aaa = 5.*6fun(iii); aaa = 5.*6fun2(iii)
+        %aaa=f(
         %should not match following:
         %aaa=(iii)
         %aaa=5(iii)
-        %aaa=f(
         %>>>2
-        FunctionNames = [FunctionNames{:}];
-endfunction % ParseLineGetAnyFunctionCall
+        if ~isempty(T)
+                Calls = T{:};
+                % remove match from line:
+                for i = 1:length(S)
+                        Line(S(i):E(i)) = repmat(' ', 1, E(i)-S(i)+1);
+                endfor
+        endif
+endfunction % ParseLineGetFunctionCallsWithParenthesis
 
-% ParseLineGetSpecialFunctionCalls %<<<1
-function SpecialFunctionNames = ParseLineGetSpecialFunctionCalls(Line, Specials)
-% parse line and return function name from special function call if any found
-% this is to find function calls not followed by parenthesis (like 'disp a')
-% however to find it, function has to be in Specials
-% XXX takes also things in '' and ""
-                % strfind -> strcmp XXX
-        tmp = strfind(Line, Specials);
-        SpecialFunctionNames = Specials(not(cellfun(@isempty, tmp)));
-endfunction % ParseLineGetAnyFunctionCall
+% ParseLineGetDefinedFunctionCalls %<<<1
+function [Calls, Line] = ParseLineGetDefinedFunctionCalls(Line, DefinedFunctionNames)
+% parse line and return function names from function calls of FunctionNames if any found
+% this is to find function calls not followed by parenthesis (like 'disp a' or 'number = some_function_without_parameters')
+% however to find it, function has to be known
+        Calls = {};
+        for i = 1:length(DefinedFunctionNames)
+                ids = strfind(Line, DefinedFunctionNames{i});
+                if not(isempty(ids))
+                        Calls{end+1} = DefinedFunctionNames{i};
+                        for j = 1:length(ids)
+                                Line(ids(j):ids(j) + length(DefinedFunctionNames{i}) - 1) = repmat(' ', 1, length(DefinedFunctionNames{i}));
+                        endfor
+                endif
+        endfor
+endfunction % ParseLineGetDefinedFunctionCalls
 
 % GetFunctionGraphName %<<<1
 function GraphName = GetFunctionGraphName(CurFileName, FunctionName, isSubfunction)
@@ -586,6 +645,7 @@ function [GraphLines SortedAllNodesOut] = WalkThroughRecursively(Parent, Nodes, 
                 % Walklist pridat uroven
 
                 % check for recursions:
+                % xxx zrusit 
                 if any(strcmpi(WalkList, Nodes(i).ChildrenFunction.ID))
                         disp('recursion found...')
                         % recursion found, add graph line, do not search for nodes in called function/children:

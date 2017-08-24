@@ -65,6 +65,7 @@
 %     .MainFunction - Nonzero if function is the main function in a m-file with multiple functions.
 %     .SubFunction - Nonzero if function is the sub function in a m-file with multiple functions.
 %     .Forbidden - Nonzero if function is set as Forbidden by user.
+%     .Other - Nonzero if function is not found in parsed m-Files and is not Forbidden or Special.
 %     .FilePathName - file path and name of the file where the function is.
 %     .LineNo - line number of the definition of the function.
 %
@@ -156,11 +157,11 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
                 Settings.PlotSpecials, ...
                 Settings.PlotOtherFuns] = parseparams (varargin, ...
                         'graphtype',            'dependency', ...
-                        'plotmainfuns',         1, ...
-                        'plotsubfuns',          1, ...
-                        'plotspecials',         1, ...
-                        'plototherfuns',        0, ...
-                        'plotunknownfuns',      0);
+                        'plotmainfuns',         1,...% XXX return back to proper default value! 1, ...
+                        'plotsubfuns',          1,...% XXX return back to proper default value! 1, ...
+                        'plotspecials',         0,...% XXX return back to proper default value! 1, ...
+                        'plototherfuns',        1, ...
+                        'plotunknownfuns',      0); % ZRUSIT, nebo ne? zatim neni implementovane
 
         % -------------------- files parsing -------------------- %<<<2
         % search all .m files in input directory and subdirectories:
@@ -172,10 +173,49 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
         Settings.mFileNames = Settings.mFileNames(not(cellfun('isempty', Settings.mFileNames)));
         % in all m-files find functions and nodes: 
         [Functions Nodes] = cellfun(@GetAllFunDefsAndCalls, mFilesPathNames, {Settings}, 'UniformOutput', 0);
+        Nodes = FillInChildrenFunctionField(Functions, Nodes, Settings);
         % now the Functions is cell containing Function structures, one cell per file, and
         % Nodes is cell containing Node structures, one cell per file. Nodes are as found in file, i.e.
         % if something is called multiple times, it is multiple times in Nodes.
         disp(["Files scanned. " num2str(length([Functions{:}])) " function definitions and " num2str(length([Nodes{:}])) " calls (nodes) found in " num2str(length(mFilesPathNames)) " m-files."])
+
+        % -------------------- nodes and functions filtering according settings -------------------- %<<<2
+        % remove forbidden functions and calls from/to forbidden
+        Functions = FilterFunctions(Functions, Forbidden);
+        Nodes = FilterNodes(Nodes, Forbidden);
+
+        if not(Settings.PlotSpecials)
+                % remove special functions and calls from/to specials
+                Functions = FilterFunctions(Functions, Settings.Specials);
+                Nodes = FilterNodes(Nodes, Settings.Specials);
+        endif
+        allfuns = [Functions{:}];
+        if not(Settings.PlotMainFuns)
+                % filter for main functions:
+                Filter = unique({allfuns(logical([allfuns.MainFunction])).Name});
+                % remove special functions and calls from/to main functions:
+                Functions = FilterFunctions(Functions, Filter);
+                Nodes = FilterNodes(Nodes, Filter );
+        endif
+        if not(Settings.PlotSubFuns)
+                % filter for sub functions:
+                Filter = unique({allfuns(logical([allfuns.SubFunction])).Name});
+                % remove special functions and calls from/to sub functions
+                Functions = FilterFunctions(Functions, Filter);
+                Nodes = FilterNodes(Nodes, Filter );
+        endif
+        if not(Settings.PlotOtherFuns)
+                % remove special functions and calls from/to other functions
+                Nodes = FilterNodesToOther(Nodes);
+        endif
+        disp(["Functions and Nodes filtered according settings. " num2str(length([Functions{:}])) " function definitions and " num2str(length([Nodes{:}])) " calls (nodes) left."])
+
+        if isempty([Functions{:}])
+                error("No functions left after filtering. Either no functions were found or plotting of all functions was disabled.")
+        endif
+        if isempty([Nodes{:}])
+                error("No nodes left after filtering. Either no nodes were found or plotting of functions related to all nodes was disabled.")
+        endif
 
         % OBSOLETE, delete: %<<<2
         % method=0
@@ -204,15 +244,10 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
                 % fclose(fid);
                 % disp("Graph written")
 
-        AllNodes = [Nodes{:}];
-        AllFunctions = [Functions{:}];
-        % probably not needed anymore XXX:
-        % AllNodes = FillInCallFunction(AllFunctions, AllNodes);
-
-        % this is needed so nodes with all same but line number will be deduplicated:
-
         % -------------------- dependency graph -------------------- %<<<2
         if strcmpi(Settings.GraphType, 'dependency')
+                AllNodes = [Nodes{:}];
+                AllFunctions = [Functions{:}];
                 % -------------------- nodes processing -------------------- %<<<2
                 % all calls of children in one parent (one function) are considered as the same, so for
                 % easy deduplication line numbers are removed:
@@ -234,7 +269,8 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
                         error('Multiple cells containing the start function were found. Sorting is not working properly. This is internal error.')
                 endif
                 % prepare recursion:
-                Parent = SortedAllNodes{id}(1).ParentFunction;
+                % PODIVNA UPRAVA - predtim tohle fungovalo: Parent = SortedAllNodes{id}(1).ParentFunction;
+                Parent = [SortedAllNodes{id}](1).ParentFunction;
                 Nodes = SortedAllNodes{id};
                 WalkList = [{Parent.ID}];
                 % start recursion:
@@ -263,7 +299,7 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
 
         % -------------------- pdf file creation -------------------- %<<<2
         % call GraphViz
-        [STATUS, OUTPUT] = system(['dot -Tpdf "' GraphFileName '.dot" -o "' GraphFileName '.pdf"']);
+        [STATUS, OUTPUT] = system(['dot -Tpdf "' GraphFileFullPath '.dot" -o "' GraphFileFullPath '.pdf"']);
         if STATUS
                 error(["GraphViz failed. Output was:\n" OUTPUT])
         else
@@ -323,6 +359,7 @@ function [newFunctions newNodes] = GetAllFunDefsAndCalls(FilePathName, Settings)
         newFunctions.MainFunction = 0;
         newFunctions.SubFunction = 0;
         newFunctions.Forbidden = 0;
+        newFunctions.Other = 0;
         newFunctions.FilePathName = '';
         newFunctions.LineNo = 0;
 
@@ -367,6 +404,7 @@ function [newFunctions newNodes] = GetAllFunDefsAndCalls(FilePathName, Settings)
                         newFunction.GraphName = GetFunctionGraphName(CurFileName, newFunction.Name, newFunction.SubFunction);
                         newFunction.Special = not(isempty(cell2mat(strcmp(Settings.Specials, newFunction.Name))));
                         newFunction.Forbidden = not(isempty(cell2mat(strcmp(Settings.Forbidden, newFunction.Name))));
+                        newFunction.Other = 0;
                         newFunction.FilePathName = FilePathName;
                         newFunction.LineNo = LineNo;
                         % set flags for next loop iterations:
@@ -751,34 +789,103 @@ function OutStruct = UniqueStruct(InStruct)
         endif
 endfunction % UniqueStruct
 
-%<<<1 %>>>1
 
-%% % FillInCallFunction %<<<1
-%% function AllNodesOut = FillInCallFunction(AllFunctions, AllNodes)
-%% % XXX not needed anymore? !!!
-%%         % adds to nodes a .CallFunction field, which is a called Function structure:
-%%         for i = 1:length(AllNodes)
-%%                 % get id of Function in the Call
-%%                 id = find( strcmp(AllNodes(i).CallID, {AllFunctions.ID}) );
-%%                 if isempty(id)
-%%                         % call is not a function in list of functions
-%%                         % XXX what to do here?
-%%                         % JE TO PROBLEM? XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-%%                         % JE!!!!
-%%                         % tmp.Name = 'somefun';
-%%                         % tmp.ID = 'somefun';
-%%                         % tmp.SubFunction = 0;
-%%                         % tmp.GraphName = 'somefun';
-%%                         % AllNodes(i).CallFunction = tmp;
-%%                 else
-%%                         id = id(1);
-%%                         % Set calling function in the Node
-%%                         AllNodes(i).CallFunction = AllFunctions(id);
-%%                         % this causes only nodes with filled in call function gets to the output:
-%%                         % XXX preselection should be elsewhere
-%%                         AllNodesOut(end+1) = AllNodes(i);
-%%                 endif
-%%         endfor
-%% endfunction
+% FillInChildrenFunctionField %<<<1
+function Nodes = FillInChildrenFunctionField(Functions, Nodes, Settings)
+% adds to nodes a proper value of ChildrenFunction field based on
+% found functions and settings. If called function is not in found functions
+% or in settings, it is removed!
+        AllFunctions = [Functions{:}];
+        for i = 1:length(Nodes)
+                for j = 1:length(Nodes{i})
+                        % get id of Function in the Call
+                        id = find( strcmp(Nodes{i}(j).ChildrenFunctionName, {AllFunctions.Name}) );
+                        if isempty(id)
+                                % call is not a function in list of found functions
+                                % create structure of and ad hoc function:
+                                newChildren.Name = Nodes{i}(j).ChildrenFunctionName;
+                                newChildren.ID = newChildren.Name;
+                                newChildren.GraphName = GetFunctionGraphName('', newChildren.Name, 0);
+                                newChildren.Special = any(strcmp(newChildren.Name, Settings.Specials));
+                                newChildren.MainFunction = 1; % this is reasonable assumption
+                                newChildren.SubFunction = 0; % this is reasonable assumption
+                                newChildren.Forbidden = any(strcmp(newChildren.Name, Settings.Forbidden));
+                                newChildren.Other = not(newChildren.Special | newChildren.Forbidden);
+                                newChildren.FilePathName = ''; % file path of m-file with this function is unknown
+                                newChildren.LineNo = 0; % line number in m-file with definition of this function is unknown
+                                % set children function in the Node:
+                                % AllNodes(i).CallFunction = tmp;
+                                Nodes{i}(j).ChildrenFunction = newChildren;
+                        else
+                                id = id(1);
+                                % set children function in the Node:
+                                Nodes{i}(j).ChildrenFunction = AllFunctions(id);
+                        endif
+                endfor % length(Nodes{i})
+        endfor % length(Nodes)
+endfunction % FillInChildrenFunctionField
+
+% FilterFunctions %<<<1 
+function [Functions Nodes] = FilterFunctions(Functions, Filter);
+% removes functions which names are listed in Filter
+% preserves cells with arrays of structures
+        if ~isempty(Filter)
+                for i = 1:length(Functions)
+                        % all names of functions as cell of strings:
+                        tmp = {[Functions{i}(:)].Name};
+                        % first input of strcmp (cell of size 1,1) is the same for all iterations of cellfun
+                        % second input of strcmp is changed during cellfun iterations
+                        tmp = cellfun(@strcmp, tmp, {Filter}, 'UniformOutput', false);
+                        ids = not(sum(vertcat(tmp{:}),2));
+                        Functions{i} = Functions{i}(ids);
+                endfor
+        endif
+endfunction % FilterFunctions
+
+% FilterNodes %<<<1
+function [Nodes] = FilterNodes(Nodes, Filter);
+% removes nodes with parent or children function with names listed in Filter
+% preserves cells with arrays of structures
+        if ~isempty(Filter)
+                for i = 1:length(Nodes)
+                        if ~isempty(Nodes{i})
+                                % filter by parents %<<<2
+                                % all names of parent functions as cell of strings:
+                                tmp = {[Nodes{i}(:).ParentFunction].Name};
+                                % first input of strcmp (cell of size 1,1) is the same for all iterations of cellfun
+                                % second input of strcmp is changed during cellfun iterations
+                                tmp = cellfun(@strcmp, tmp, {Filter}, 'UniformOutput', false);
+                                ids = not(sum(vertcat(tmp{:}),2));
+                                Nodes{i} = Nodes{i}(ids);
+
+                                if ~isempty(Nodes{i})
+                                        % filter by children %<<<2
+                                        % all names of children functions as cell of strings:
+                                        tmp = {[Nodes{i}(:).ChildrenFunction].Name};
+                                        % first input of strcmp (cell of size 1,1) is the same for all iterations of cellfun
+                                        % second input of strcmp is changed during cellfun iterations
+                                        tmp = cellfun(@strcmp, tmp, {Filter}, 'UniformOutput', false);
+                                        ids = not(sum(vertcat(tmp{:}),2));
+                                        Nodes{i} = Nodes{i}(ids);
+                                endif
+                        endif % ~iempty(Nodes{i})
+                endfor % length(Nodes)
+        endif % ~iempty(Filter)
+endfunction % FilterNodes
+
+% FilterNodesToOther %<<<1
+function [Nodes] = FilterNodesToOther(Nodes);
+% removes nodes with other children function
+% preserves cells with arrays of structures
+        for i = 1:length(Nodes)
+                if ~isempty(Nodes{i})
+                        % filter by children property .other
+                        ids = not([[Nodes{i}(:).ChildrenFunction].Other]);
+                        Nodes{i} = Nodes{i}(ids);
+                endif % ~isempty(Nodes{i})
+        endfor % length(Nodes)
+endfunction % FilterNodesToOther
+
+%<<<1 %>>>1
 
 % vim modeline: vim: foldmarker=%<<<,%>>> fdm=marker fen ft=octave textwidth=1000

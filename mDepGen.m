@@ -2,39 +2,69 @@
 ##
 
 ## -*- texinfo -*-
-## @deftypefn  {Function File} @var{} = mDepGen (@var{inDir}, @var{StartFunction})
-## @deftypefnx {Function File} @var{} = mDepGen (@var{inDir}, @var{StartFunction}, @var{GraphFileName})
-## @deftypefnx {Function File} @var{} = mDepGen (@var{inDir}, @var{StartFunction}, @var{GraphFileName}, @var{Specials})
+## @deftypefn  {Function File} @var{} = mDepGen (@var{inDir}, @var{StartFunction}, @var{GraphFile})
+## @deftypefnx {Function File} @var{} = mDepGen (@var{inDir}, @var{StartFunction}, @var{GraphFile}, @var{Specials})
+## @deftypefnx {Function File} @var{} = mDepGen (@var{inDir}, @var{StartFunction}, @var{GraphFile}, @var{Specials}, @var{Forbidden})
 ## @deftypefnx {Function File} @var{} = mDepGen (..., @var{property}, @var{value})
+##
+## Function parse all m-files in string @var{inDir}, identifies all functions 
+## and calls, finds out which function calls which one, creates graph 
+## @var{GraphFile} in Graphviz format starting from @var{StartFunction},
+## calls Graphviz to generate graph in pdf format.
 ## 
-## Input variables:
+## Recursions are identified and plotted on graph by different colour.
+## 
+## Function calls in code of m-files are identified as being followed
+## by parenthesis `(`. However some functions are called without 
+## parenthesis (like code `t=tic;`). These functions will be identified 
+## only if:
+## @table @identi
+## @item called function is main function in an m-file,
+## @item called function is sub function in an m-file,
+## @item called function is listed in @var{Specials}
+## @end table
+## 
+## Input variables detailed:
 ## @table @samp
 ## @item @var{inDir} - Directory containing m-files to be processed.
-## @item @var{StartFunction} - file name of a starting function of the
-##      dependency. Either a full path to the m-file or only a file name.
+## @item @var{StartFunction} - File name of a starting function of the
+##      graph. Either a full path to the m-file or only a file name.
 ##      In the last case a @var{inDir} will be prepended to the file name.
-## @item @var{GraphFileName} - file name of a resulted graph. Either 
+## @item @var{GraphFileName} - File name of a resulted graph. Either 
 ##      a full path of the graph or only a file name. In the last case 
 ##      a @var{inDir} will be prepended to the file name.
 ## @item @var{Specials} - Cell of character string with function names.
-##      These functions will be displayed in the graph even if not found
-##      in m-files in specified path @var{inDir}.
+##      These functions will be always displayed in the graph.
+## @item @var{Forbidden} - Cell of character string with function names.
+##      These functions will not be displayed in the graph.
 ## @end table
 ##
-## Multiple property-value pairs may be specified, but they must
-## appear in pairs. Properties and default values:
+## Behaviour of graph can be fine tuned by @var{property} @var{value} pairs.
+## Default value is in brackets.
 ## @table @props
-## @item 'graphtype' - type of output graph. Possible values:
+## @item 'graphtype' (dependency) - string, type of output graph. Possible values:
 ##      @table @gt
-##      @item 'dependency' - Graph of dependency. Default value.
+##      @item 'dependency' - Graph of dependency.
 ##      @end table
-##      Other possibilities are not yet implemented.
-## @item 'plotall' - all function calls are plotted. If set, the resulted
-##      graph can be quite large. Default value: 0.
+##      For now it is the only possibility. More will maybe come in future.
+## @item 'plotmainfuns' (1) - boolean, main functions (first one in m-file) will be plotted.
+##      Be carefull to switching this off. This could result in empty graph.
+## @item 'plotsubfuns' (1) - boolean, sub functions (second and others in m-file) will be 
+##      plotted.
+## @item 'plotspecials' (1) - boolean, functions listed in Specials will be 
+##      plotted.
+## @item 'plototherfuns' (1) - boolean, function calls followed by parenthesis `(` and 
+##      existing in Octave namespace will be plotted.
+## @item 'plotunknownfuns' (1) - boolean, anything resembling function call (word 
+##      followed by parenthesis `(` will be plotted. Due to limitations 
+##      of this program variables can be considered as function calls 
+##      (i.e. code `variable(:)`).
+## 
 ## @end table
-## ## Example 1:
+##
+## Example:
 ## @example
-## XXX
+## mDepGen('.', 'mDepGen', 'example_graph', @{'fopen', 'fgetl'@}, @{'PrepareLine'@}, 'plototherfuns', 1)
 ## @end example
 ## @end deftypefn
 
@@ -66,6 +96,7 @@
 %     .SubFunction - Nonzero if function is the sub function in a m-file with multiple functions.
 %     .Forbidden - Nonzero if function is set as Forbidden by user.
 %     .Other - Nonzero if function is not found in parsed m-Files and is not Forbidden or Special.
+%     .OtherUnknown - Nonzero if function is other and is not known to octave (probably false positive)
 %     .FilePathName - file path and name of the file where the function is.
 %     .LineNo - line number of the definition of the function.
 %
@@ -82,6 +113,7 @@
 %       .PlotSubFuns - subfunctions of found m files will be plotted
 %       .PlotSpecials - specials as set by user will be plotted
 %       .PlotOtherFuns - other functions found in m files
+%       .PlotOtherUknown - other functions found in m files even if not known by octave (possibly false positives on variables like: `variable(index) = something` )
 %       .Specials - cell of strings with special functions as set by user
 %       .Forbidden - cell of strings with forbidden (not to be plotted) functions as set by user
 %       .mFileNames - cell of strings with names of m files found in directories
@@ -93,19 +125,17 @@
 
 % mDepGen %<<<1
 function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden={}, varargin)
-        % only for testing: %<<<2
-        inDir = 'test_functions_complex';
-        StartFunction = 'test_functions_complex/main.m';
-        GraphFileName = 'test_functions_complex';
-        Specials = {''};
-
-        inDir = 'test_functions_simple';
-        StartFunction = 'test_functions_simple/main.m';
-        GraphFileName = 'test_functions_simple';
-
-        inDir = '.';
-        StartFunction = 'mDepGen.m';
-        GraphFileName = 'mDepGen';
+        % only for testing purposes: %<<<2
+        % inDir = 'test_functions';
+        % StartFunction = 'main.m';
+        % GraphFile = 'test_functions_dependency_graph';
+        % Specials = {'tic'};
+        % varargin = { 'graphtype',            'dependency', ...
+                        % 'plotmainfuns',         1,...
+                        % 'plotsubfuns',          1,...
+                        % 'plotspecials',         1,...
+                        % 'plototherfuns',        1,...
+                        % 'plotunknownfuns',      0};
 
         % -------------------- format and check inputs -------------------- %<<<2
         % format and check input directory %<<<3
@@ -128,6 +158,10 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
         StartFunctionName = na;
         % format and check output graph file name %<<<3
         [di na ex] = fileparts(GraphFile);
+        % check proper file:
+        if isempty(na)
+                error(['Graph file name is empty!'])
+        endif
         % if graph is only file name:
         if isempty(di)
                 % prepend full path to it:
@@ -155,13 +189,14 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
                 Settings.PlotMainFuns, ...
                 Settings.PlotSubFuns, ...
                 Settings.PlotSpecials, ...
-                Settings.PlotOtherFuns] = parseparams (varargin, ...
+                Settings.PlotOtherFuns, ...
+                Settings.PlotOtherUnknownFuns] = parseparams (varargin, ...
                         'graphtype',            'dependency', ...
-                        'plotmainfuns',         1,...% XXX return back to proper default value! 1, ...
-                        'plotsubfuns',          1,...% XXX return back to proper default value! 1, ...
-                        'plotspecials',         0,...% XXX return back to proper default value! 1, ...
-                        'plototherfuns',        1, ...
-                        'plotunknownfuns',      0); % ZRUSIT, nebo ne? zatim neni implementovane
+                        'plotmainfuns',         1,...
+                        'plotsubfuns',          1,...
+                        'plotspecials',         1,...
+                        'plototherfuns',        0,...
+                        'plotunknownfuns',      0);
 
         % -------------------- files parsing -------------------- %<<<2
         % search all .m files in input directory and subdirectories:
@@ -204,9 +239,13 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
                 Functions = FilterFunctions(Functions, Filter);
                 Nodes = FilterNodes(Nodes, Filter );
         endif
+        if not(Settings.PlotOtherUnknownFuns)
+                % remove other unknown functions and calls from/to other functions
+                Nodes = FilterNodesByOtherUnknown(Nodes);
+        endif
         if not(Settings.PlotOtherFuns)
-                % remove special functions and calls from/to other functions
-                Nodes = FilterNodesToOther(Nodes);
+                % remove other functions and calls from/to other functions
+                Nodes = FilterNodesByOther(Nodes);
         endif
         disp(["Functions and Nodes filtered according settings. " num2str(length([Functions{:}])) " function definitions and " num2str(length([Nodes{:}])) " calls (nodes) left."])
 
@@ -285,7 +324,7 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
         % -------------------- final graph generation -------------------- %<<<2
         % join header, graph lines and ending together
         Graph = '/* Generated by mDepGen */';
-        Graph = [Graph "\ndigraph dep {\nnode [shape = box];"];
+        Graph = [Graph "\ndigraph dep {\nnode [shape = oval];"];
         for i = 1:length(GraphLines)
                 Graph = [Graph "\n" GraphLines{i}];
         endfor
@@ -360,6 +399,7 @@ function [newFunctions newNodes] = GetAllFunDefsAndCalls(FilePathName, Settings)
         newFunctions.SubFunction = 0;
         newFunctions.Forbidden = 0;
         newFunctions.Other = 0;
+        newFunctions.OtherUnknown = 0;
         newFunctions.FilePathName = '';
         newFunctions.LineNo = 0;
 
@@ -380,10 +420,15 @@ function [newFunctions newNodes] = GetAllFunDefsAndCalls(FilePathName, Settings)
         FunctionsFound = 0;
         % name of current function in a m-file:
         CurrentFunctionName = '';
+        % variable for second parsing of file to get nodes %<<<2
+        % lines of code - do not contain lines with function definition:
+        Lines = {};
+        % line numbers in original file corresponding to Lines:
+        LineNumbers = [];
         % line numbers of function definitions for easy use in second parsing through the file:
         newFunctionsLineNo = [];
 
-        % open the m-file:
+        % open the m-file %<<<2
         fid = fopen (FilePathName);
         Line = fgetl (fid);
         % parse line by line and search now only function definitions %<<<2
@@ -402,9 +447,10 @@ function [newFunctions newNodes] = GetAllFunDefsAndCalls(FilePathName, Settings)
                         newFunction.SubFunction = not(not(FunctionsFound));
                         newFunction.MainFunction = not(newFunction.SubFunction);
                         newFunction.GraphName = GetFunctionGraphName(CurFileName, newFunction.Name, newFunction.SubFunction);
-                        newFunction.Special = not(isempty(cell2mat(strcmp(Settings.Specials, newFunction.Name))));
-                        newFunction.Forbidden = not(isempty(cell2mat(strcmp(Settings.Forbidden, newFunction.Name))));
+                        newFunction.Special = any(strcmp(Settings.Specials, newFunction.Name));
+                        newFunction.Forbidden = any(strcmp(Settings.Forbidden, newFunction.Name));
                         newFunction.Other = 0;
+                        newFunction.OtherUnknown = newFunction.Other;
                         newFunction.FilePathName = FilePathName;
                         newFunction.LineNo = LineNo;
                         % set flags for next loop iterations:
@@ -653,7 +699,7 @@ endfunction % ParseLineGetDefinedFunctionCalls
 function GraphName = GetFunctionGraphName(CurFileName, FunctionName, isSubfunction)
 % generate name of function as will be shown in graph
         if isSubfunction
-                GraphName = [FunctionName ' (' CurFileName ')'];
+                GraphName = [FunctionName '\\n (' CurFileName ')'];
         else
                 GraphName = FunctionName;
         endif
@@ -709,7 +755,7 @@ function [GraphLines SortedAllNodesOut] = WalkThroughRecursively(Parent, Nodes, 
                                 ParentFunction = Nodes(i).ChildrenFunction;
                                 NodesToChildren = SortedAllNodes{id};
                                 newWalkList = [WalkList {ParentFunction.ID}];
-                                disp(['new recursion to ' ParentFunction.ID])
+                                disp(['going deeper to ' ParentFunction.ID])
                                 [NewGraphLines SortedAllNodes] = WalkThroughRecursively(ParentFunction, NodesToChildren, newWalkList, SortedAllNodes);
                                 % accumulate graph lines from deeper level of recursion:
                                 GraphLines = [GraphLines NewGraphLines];
@@ -764,7 +810,14 @@ endfunction % RemoveLineNo
 function GraphLine = MakeDotLine(Parent, Children, nodetype)
 % generate line for .dot graph file according node type. Parent and Children are Function structures.
         if strcmpi(nodetype, 'recursion')
-                app = ' [color=red];';
+                % is it the recursion to itselr?
+                if strcmp(Parent.Name, Children.Name)
+                        % make arrow pointing down to up
+                        app = ' [color=red dir=back];';
+                else
+                        % this will be probably already correctly plotted by graphviz because it is from lowest level of recursion to beck
+                        app = ' [color=red];';
+                endif
         else
                 app = ';';
         endif
@@ -811,6 +864,8 @@ function Nodes = FillInChildrenFunctionField(Functions, Nodes, Settings)
                                 newChildren.SubFunction = 0; % this is reasonable assumption
                                 newChildren.Forbidden = any(strcmp(newChildren.Name, Settings.Forbidden));
                                 newChildren.Other = not(newChildren.Special | newChildren.Forbidden);
+                                % not only builtin, e.g. parcellfun returns not 5, but 2!
+                                newChildren.OtherUnknown = ( newChildren.Other & not(exist(newChildren.Name, 'builtin')) );
                                 newChildren.FilePathName = ''; % file path of m-file with this function is unknown
                                 newChildren.LineNo = 0; % line number in m-file with definition of this function is unknown
                                 % set children function in the Node:
@@ -873,8 +928,8 @@ function [Nodes] = FilterNodes(Nodes, Filter);
         endif % ~iempty(Filter)
 endfunction % FilterNodes
 
-% FilterNodesToOther %<<<1
-function [Nodes] = FilterNodesToOther(Nodes);
+% FilterNodesByOther %<<<1
+function [Nodes] = FilterNodesByOther(Nodes);
 % removes nodes with other children function
 % preserves cells with arrays of structures
         for i = 1:length(Nodes)
@@ -884,7 +939,20 @@ function [Nodes] = FilterNodesToOther(Nodes);
                         Nodes{i} = Nodes{i}(ids);
                 endif % ~isempty(Nodes{i})
         endfor % length(Nodes)
-endfunction % FilterNodesToOther
+endfunction % FilterNodesByOther
+
+% FilterNodesByOtherUnknown %<<<1
+function [Nodes] = FilterNodesByOtherUnknown(Nodes);
+% removes nodes with other children function
+% preserves cells with arrays of structures
+        for i = 1:length(Nodes)
+                if ~isempty(Nodes{i})
+                        % filter by children property .other
+                        ids = not([[Nodes{i}(:).ChildrenFunction].OtherUnknown]);
+                        Nodes{i} = Nodes{i}(ids);
+                endif % ~isempty(Nodes{i})
+        endfor % length(Nodes)
+endfunction % FilterNodesByOtherUnknown
 
 %<<<1 %>>>1
 

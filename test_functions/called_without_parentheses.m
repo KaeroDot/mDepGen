@@ -1,7 +1,6 @@
-% this function is only called without parenteses, like this:
+% this function is only called without parentheses, like this:
 % called_without_parentheses 
-% and not this:
+% but not this:
 % called_without_parentheses()
 function called_without_parentheses()
-        1;
 endfunction

@@ -143,6 +143,10 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
                         % 'plotunknownfuns',      0};
 
         % -------------------- format and check inputs -------------------- %<<<2
+        % check number of inputs %<<<3
+        if nargin < 2
+                print_usage();
+        endif
         % format and check input directory %<<<3
         inDir = EnsureProperDirFormat(inDir);
         if exist(inDir, 'dir') ~= 7
@@ -571,8 +575,16 @@ function [Calls, Line] = ParseLineGetDefinedFunctionCalls(Line, DefinedFunctionN
 % parse line and return function names from function calls of FunctionNames if any found
 % this is to find function calls not followed by parenthesis (like 'disp a' or 'number = some_function_without_parameters')
 % however to find it, function has to be known
+        % sort DefinedFunctionNames according length from longest to shortest.
+        % this is to prevent finding subparts of some defined function name in longer defined function name
+        % (like function `some_function` should not be found first in function `some_function_something`)
+        len = @cellfun(@length, DefinedFunctionNames);
+        [tmp indexes] = sort(len);
+        DefinedFunctionNames = DefinedFunctionNames(flip(indexes));
+        % search line for names:
         Calls = {};
         for i = 1:length(DefinedFunctionNames)
+                % XXX find by longest defined function names? how to solve it?
                 ids = strfind(Line, DefinedFunctionNames{i});
                 if not(isempty(ids))
                         Calls{end+1} = DefinedFunctionNames{i};

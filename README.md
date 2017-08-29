@@ -6,7 +6,7 @@ directory, identifies all functions and calls, finds out which function calls wh
 graph in [Graphviz](http://www.graphviz.org/) format starting from specified function, calls
 [Graphviz](http://www.graphviz.org/) to generate graph in pdf format.
 
-This dependency generator do not provide syntax analysis of m files, it only does some regular
+This dependency generator does not provide syntax analysis of m files, it only does some regular
 expression matching.
 
 It can:

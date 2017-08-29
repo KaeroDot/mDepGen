@@ -5,28 +5,31 @@
 ## @deftypefn  {Function File} @var{} = mDepGen (@var{inDir}, @var{StartFunction}, @var{GraphFile})
 ## @deftypefnx {Function File} @var{} = mDepGen (@var{inDir}, @var{StartFunction}, @var{GraphFile}, @var{Specials})
 ## @deftypefnx {Function File} @var{} = mDepGen (@var{inDir}, @var{StartFunction}, @var{GraphFile}, @var{Specials}, @var{Forbidden})
-## @deftypefnx {Function File} @var{} = mDepGen (..., @var{property}, @var{value})
+## @deftypefnx {Function File} @var{} = mDepGen (@var{inDir}, @var{StartFunction}, @var{GraphFile}, @var{Specials}, @var{Forbidden}, @var{property}, @var{value}, ...)
 ##
 ## Function parse all m-files in string @var{inDir}, identifies all functions 
 ## and calls, finds out which function calls which one, creates graph 
 ## @var{GraphFile} in Graphviz format starting from @var{StartFunction},
 ## calls Graphviz to generate graph in pdf format.
+##
+## This function does not provide syntax analysis of m files, it only does some 
+## regular expression matching.
 ## 
 ## Recursions are identified and plotted on graph by different colour.
 ## m-Files in sub directories are also parsed, however function `addpath`
 ## is not understood.
 ## 
-## Function calls in code of m-files are identified as being followed
+## Function calls in source code of m-files are identified as being followed
 ## by parenthesis `(`. However some functions are called without 
 ## parenthesis (like code `t=tic;`). These functions will be identified 
 ## only if:
-## @table @identi
+## @table @samp
 ## @item called function is main function in an m-file,
 ## @item called function is sub function in an m-file,
 ## @item called function is listed in @var{Specials}
 ## @end table
 ## 
-## Input variables detailed:
+## Input variables in detail:
 ## @table @samp
 ## @item @var{inDir} - Directory containing m-files to be processed.
 ## @item @var{StartFunction} - File name of a starting function of the
@@ -43,9 +46,9 @@
 ##
 ## Behaviour of graph can be fine tuned by @var{property} @var{value} pairs.
 ## Default value is in brackets.
-## @table @props
+## @table @samp
 ## @item 'graphtype' (dependency) - string, type of output graph. Possible values:
-##      @table @gt
+##      @table @samp
 ##      @item 'dependency' - Graph of dependency.
 ##      @end table
 ##      For now it is the only possibility. More will maybe come in future.

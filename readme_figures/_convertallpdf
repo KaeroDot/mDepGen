@@ -1,0 +1,9 @@
+#!/bin/bash 
+
+echo "Converts all pdf files in directory to png by means of convert"
+LIST=`ls *.pdf` 
+for iii in $LIST 
+do
+        echo "$iii"
+        convert -density 70x70 $iii `basename $iii .pdf`.png
+done

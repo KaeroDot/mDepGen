@@ -178,6 +178,8 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
         if isempty(di)
                 % prepend full path to it:
                 GraphFileFullPath = fullfile(inDir, GraphFile);
+        else
+                GraphFileFullPath = GraphFile;
         endif
         % format and check specials function names %<<<3
         Specials = Specials(:)';
@@ -328,9 +330,11 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
 
         % -------------------- pdf file creation -------------------- %<<<2
         % call GraphViz
-        [STATUS, OUTPUT] = system(['dot -Tpdf "' GraphFileFullPath '.dot" -o "' GraphFileFullPath '.pdf"']);
+        % filename of graph has to be escaped to process in bash, because dot do not take file names in " "
+        cmd = ['dot -Tpdf ' EscapeFileNameForBash(GraphFileFullPath) '.dot -o ' EscapeFileNameForBash(GraphFileFullPath) '.pdf'];
+        [STATUS, OUTPUT] = system(cmd);
         if STATUS
-                error(["GraphViz failed. Output was:\n" OUTPUT])
+                error(["GraphViz failed. Output was:\n" OUTPUT "\nCommand was:\n" cmd])
         else
                 disp("Pdf created")
         endif
@@ -845,5 +849,16 @@ function [Nodes] = FilterNodesByOtherUnknown(Nodes);
                 endif % ~isempty(Nodes{i})
         endfor % length(Nodes)
 endfunction % FilterNodesByOtherUnknown
+
+% EscapeFileNameForBash %<<<1
+function FileName = EscapeFileNameForBash(FileName);
+% escapes special characters in FileName for bash processing
+        % list of special characters:
+        specchars = {char(92), ... % character \, must be first!
+                        ' ', '$', "'", '"', '#', '[', ']', '!', '<', '>', '|', ';', '{', '}', '(', ')'};
+        for i = 1:length(specchars)
+                FileName = strrep(FileName, specchars{i}, [char(92) specchars{i}]);
+        endfor
+endfunction % EscapeFileNameForBash
 
 % vim modeline: vim: foldmarker=%<<<,%>>> fdm=marker fen ft=octave textwidth=1000

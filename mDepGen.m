@@ -100,6 +100,7 @@
 %     .ID - Identificator of function. Composition of file name (without .m extension), separator and function name. See function GetFunctionID.
 %     .GraphName - Name of function as will appear in graph. See function GetFunctionGraphName.
 %     .Special - Nonzero if function is set as Special by user.
+%     .Script - Nonzero if function is script (no function definition found before first call)
 %     .MainFunction - Nonzero if function is the main function in a m-file with multiple functions.
 %     .SubFunction - Nonzero if function is the sub function in a m-file with multiple functions.
 %     .Forbidden - Nonzero if function is set as Forbidden by user.
@@ -382,12 +383,17 @@ function [newFunctions newNodes] = GetAllFunDefsAndCalls(FilePathName, Settings)
 % Called functions must be called as `somefunction(` to be found.
 % If called function is listed in Settings.Specials or Settings.Forbidden or Settings., the parenthesis is not required.
 
+        % get name of current m-file:
+        [tmp tmp2 tmp3] = fileparts(FilePathName);
+        CurFileName = tmp2;
+
         % prepare structures for easy array building:
         % (this will prevent adding structures into array with different fields)
         newFunctions.Name = '';
         newFunctions.ID = '';
         newFunctions.GraphName = '';
         newFunctions.Special = 0;
+        newFunctions.Script = 0;
         newFunctions.MainFunction = 0;
         newFunctions.SubFunction = 0;
         newFunctions.Forbidden = 0;
@@ -403,9 +409,20 @@ function [newFunctions newNodes] = GetAllFunDefsAndCalls(FilePathName, Settings)
         newNodes.LineNo = 0;
         newNodes.FilePathName = '';
 
-        % get name of current m-file:
-        [tmp tmp2 tmp3] = fileparts(FilePathName);
-        CurFileName = tmp2;
+        % prepare function definition for the case it is script
+        % it will be added to newFunctions only if some call will be found before first function definition in a file
+        Script.Name = CurFileName;
+        Script.ID = GetFunctionID(CurFileName);
+        Script.GraphName = GetFunctionGraphName('', CurFileName, 0);
+        Script.Script = 1;
+        Script.MainFunction = 0;
+        Script.SubFunction = 0;
+        Script.Special = any(strcmp(Settings.Specials, Script.Name));
+        Script.Forbidden = any(strcmp(Settings.Forbidden, Script.Name));
+        Script.Other = 0;
+        Script.OtherUnknown = 0;
+        Script.FilePathName = FilePathName;
+        Script.LineNo = 1; % script starts at first line
 
         % number of current line in m-file:
         LineNo = 1;
@@ -435,6 +452,7 @@ function [newFunctions newNodes] = GetAllFunDefsAndCalls(FilePathName, Settings)
                         newFunction = struct();
                         newFunction.Name = FunctionDefinitionName;
                         newFunction.ID = GetFunctionID(CurFileName, newFunction.Name);
+                        newFunction.Script = 0;
                         % first found function is main function:
                         % (this is an assumption!)
                         newFunction.SubFunction = not(not(FunctionsFound));
@@ -467,6 +485,8 @@ function [newFunctions newNodes] = GetAllFunDefsAndCalls(FilePathName, Settings)
         newFunctions(1) = [];
 
         % searching for nodes %<<<2
+        % indicator if file is script:
+        isscript = 0;
         % now all subfunctions are known therefore can be identified even if called without parenthesis
         for i = 1:length(Lines)
                 % XXX mfilenames are not put into settings and are not found if called without parenthesis!!!!!!
@@ -487,8 +507,9 @@ function [newFunctions newNodes] = GetAllFunDefsAndCalls(FilePathName, Settings)
                                 if ~isempty(id)
                                         newNode.ParentFunction = newFunctions(id(end));
                                 else
-                                        error('fixme, scripts are not yet implemented')
-                                        % 2DO
+                                        % not yet function definition in m file, it means it is script!
+                                        isscript = 1;
+                                        newNode.ParentFunction = Script;
                                 endif
                                 newNode.ChildrenFunction = struct();
                                 newNode.ChildrenFunctionName = Calls{j};
@@ -500,6 +521,26 @@ function [newFunctions newNodes] = GetAllFunDefsAndCalls(FilePathName, Settings)
         endfor % length(Lines)
         % remove first empty structure:
         newNodes(1) = [];
+
+        % finish for the case of script:
+        if isscript
+                % set all found functions to subfunctions, fix graph name:
+                for i = 1:length(newFunctions)
+                        newFunctions(i).MainFunction = 0;
+                        newFunctions(i).SubFunction = 1;
+                        newFunctions(i).GraphName = GetFunctionGraphName(CurFileName, newFunctions(i).Name, 1);
+                endfor
+                % add script to newFunctions
+                newFunctions(end+1) = Script;
+                % set all found functions to subfunctions and fix graph name also in node parents:
+                for i = 1:length(newNodes)
+                        if newNodes(i).ParentFunction.Script == 0;
+                                newNodes(i).ParentFunction.MainFunction = 0;
+                                newNodes(i).ParentFunction.SubFunction = 1;
+                                newNodes(i).ParentFunction.GraphName = GetFunctionGraphName(CurFileName, newNodes(i).ParentFunction.Name, 1);
+                        endif
+                endfor % length(newNodes)
+        endif  % isscript
 endfunction
 
 % PrepareLine %<<<1
@@ -587,7 +628,7 @@ function [Calls, Line] = ParseLineGetDefinedFunctionCalls(Line, DefinedFunctionN
         % (like function `some_function` should not be found first in function `some_function_something`)
         len = @cellfun(@length, DefinedFunctionNames);
         [tmp indexes] = sort(len);
-        DefinedFunctionNames = DefinedFunctionNames(flip(indexes));
+        DefinedFunctionNames = DefinedFunctionNames(fliplr(indexes));
         % search line for names:
         Calls = {};
         for i = 1:length(DefinedFunctionNames)
@@ -613,9 +654,14 @@ function GraphName = GetFunctionGraphName(CurFileName, FunctionName, isSubfuncti
 endfunction % GetFunctionGraphName
 
 % GetFunctionID %<<<1
-function ID = GetFunctionID(FileName, FunctionName)
+function ID = GetFunctionID(FileName, FunctionName='')
 % generates unique function identifier from m-file name and function name
-        ID = [FileName '>' FunctionName];
+% if second field is empty, script is assumed
+        if isempty(FunctionName)
+                ID = FileName;
+        else
+                ID = [FileName '>' FunctionName];
+        endif
 endfunction % GetFunctionID
 
 % WalkThroughRecursively %<<<1
@@ -756,6 +802,7 @@ function Nodes = FillInChildrenFunctionField(Functions, Nodes, Settings)
                                 newChildren.ID = newChildren.Name;
                                 newChildren.GraphName = GetFunctionGraphName('', newChildren.Name, 0);
                                 newChildren.Special = any(strcmp(newChildren.Name, Settings.Specials));
+                                newChildren.Script = 0;
                                 newChildren.MainFunction = 1; % this is reasonable assumption!
                                 newChildren.SubFunction = 0; % this is reasonable assumption!
                                 newChildren.Forbidden = any(strcmp(newChildren.Name, Settings.Forbidden));

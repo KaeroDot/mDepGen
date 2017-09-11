@@ -87,13 +87,30 @@
 ##   Optimized: no
 
 % Code help and descriptions %<<<1
+% Code flow:
+% - find all .m files in directory and subdirs,
+% - for all .m files parse file and:
+%       - find all functions
+%       - find all nodes
+%       - fix functions/nodes for the case of script
+% - filter functions/nodes according settings
+% - according graph type:
+%       - dependency graph:
+%               - format nodes
+%               - sort and deduplicate
+%               - find starting function in sorted nodes
+%               - make recursion and generate graph lines
+% - print .dot file
+% - call graphviz
+% - call .dot->pdf conversion
+%       
 % Assumptions:
 %       1, first function definition in a m-file is main function, not a subfunction.
 %       2, only one function definition in a line of source code
 %       3, if a called function is not i a list of found functions (i.e. not in parsed m-file, 
 %          but builtin function etc.), it is assumed it is a main function and not a subfunction
 %
-% Internally two structures are used:
+% Internally three structures are used:
 %
 % structure Function (like Parent, Children):
 %     .Name - Name of function as used in script file.
@@ -130,7 +147,6 @@
 % 2DO:
 % add recursion limit
 % workflow graph
-% handle scripts
 
 % mDepGen %<<<1
 function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden={}, varargin)
@@ -278,7 +294,7 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
                 disp('Reordering for dependency graph ...')
                 AllNodes = [Nodes{:}];
                 AllFunctions = [Functions{:}];
-                % -------------------- nodes processing -------------------- %<<<2
+                % -------------------- nodes processing -------------------- %<<<3
                 % all calls of children in one parent (one function) are considered as the same, so for
                 % easy deduplication line numbers are removed:
                 AllNodes = RemoveLineNo(AllNodes);
@@ -299,7 +315,7 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
                         error('Multiple cells containing the start function were found. Sorting is not working properly. This is internal error.')
                 endif
                 % prepare recursion:
-                % PODIVNA UPRAVA - predtim tohle fungovalo: Parent = SortedAllNodes{id}(1).ParentFunction;
+                % XXX PODIVNA UPRAVA - predtim tohle fungovalo: Parent = SortedAllNodes{id}(1).ParentFunction;
                 Parent = [SortedAllNodes{id}](1).ParentFunction;
                 Nodes = SortedAllNodes{id};
                 WalkList = [{Parent.ID}];

@@ -147,6 +147,8 @@
 % 2DO:
 % add recursion limit
 % workflow graph
+% if subfunctions disabled, all calls in subfunctions must be considered as from main function, etc. for others settings
+% speeed up!
 
 % mDepGen %<<<1
 function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden={}, varargin)
@@ -312,8 +314,9 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
                 endif
                 id = find(ind);
                 if length(id) > 2
-                        error('Multiple cells containing the start function were found. Sorting is not working properly. This is internal error.')
+                        error("\n-------\n| Multiple cells containing the start function were found. This can be caused by two things:\n|   1, there are multiple filenames containing the definition of name function of the same name.\n|   2, Sorting is not working properly. This would be and internal error of mDepGen.\n-------")
                 endif
+                % -------------------- recursion -------------------- %<<<3
                 % prepare recursion:
                 % XXX PODIVNA UPRAVA - predtim tohle fungovalo: Parent = SortedAllNodes{id}(1).ParentFunction;
                 Parent = [SortedAllNodes{id}](1).ParentFunction;
@@ -321,7 +324,19 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
                 WalkList = [{Parent.ID}];
                 % start recursion:
                 disp('Walking through function calls ...')
-                GraphLines = WalkThroughRecursively(Parent, Nodes, WalkList, SortedAllNodes);
+                [GraphNodes Recursions SortedAllNodes] = WalkThroughRecursively(Parent, Nodes, WalkList, SortedAllNodes);
+
+                % -------------------- generate plot lines -------------------- %<<<3
+                % get all functions and make header lines:
+                GraphLines = MakeDotHeader([GraphNodes.ParentFunction GraphNodes.ChildrenFunction]);
+                % make lines for nodes:
+                for i = 1:length(GraphNodes)
+                        if Recursions(i)
+                                GraphLines(end+1) = MakeDotLine(GraphNodes(i).ParentFunction, GraphNodes(i).ChildrenFunction, 'recursion');
+                        else
+                                GraphLines(end+1) = MakeDotLine(GraphNodes(i).ParentFunction, GraphNodes(i).ChildrenFunction, 'normal');
+                        endif
+                endfor
 
         % -------------------- flowchart graph -------------------- %<<<2
         elseif strcmpi(Settings.GraphType, 'flowchart')
@@ -681,23 +696,27 @@ function ID = GetFunctionID(FileName, FunctionName='')
 endfunction % GetFunctionID
 
 % WalkThroughRecursively %<<<1
-function [GraphLines SortedAllNodesOut] = WalkThroughRecursively(Parent, Nodes, WalkList, SortedAllNodes)
+function [GraphNodes Recursions SortedAllNodesOut] = WalkThroughRecursively(Parent, Nodes, WalkList, SortedAllNodes)
 % function walks through functions and prepares graph lines for dependency graph
 % function is able to recognize recursions in m-files callings thanks the WalkList
-        GraphLines = {};
+        GraphNodes = struct();
+        GraphNodes(1) = [];
+        Recursions = [];
         % for all nodes/children
         for i=1:length(Nodes)
                 disp(['Node ' num2str(i) ' of ' num2str(length(Nodes)) ': ' Parent.ID ' -> ' Nodes(i).ChildrenFunction.ID])
                 % check for recursions:
                 if any(strcmpi(WalkList, Nodes(i).ChildrenFunction.ID))
                         disp('recursion found')
-                        % recursion found, add graph line, do not search for nodes in called function/children:
-                        GraphLines(end+1) = MakeDotLine(Parent, Nodes(i).ChildrenFunction, 'recursion');
+                        % recursion found, add node to graph, do not search for nodes in called function/children:
+                        GraphNodes(end+1) = Nodes(i);
+                        Recursions(end+1) = 1;
                         % when recursion, do not continue into deeper level of dependency
                 else
                         disp('no recursion, adding graph line')
-                        % no recursion, add graph line:
-                        GraphLines(end+1) = MakeDotLine(Parent, Nodes(i).ChildrenFunction, 'normal');
+                        % no recursion, add node to graph:
+                        GraphNodes(end+1) = Nodes(i);
+                        Recursions(end+1) = 0;
                         % find nodes in called function/children:
                         ind = [];
                         for j = 1:length(SortedAllNodes)
@@ -715,9 +734,10 @@ function [GraphLines SortedAllNodesOut] = WalkThroughRecursively(Parent, Nodes, 
                                 NodesToChildren = SortedAllNodes{id};
                                 newWalkList = [WalkList {ParentFunction.ID}];
                                 disp(['going deeper to ' ParentFunction.ID])
-                                [NewGraphLines SortedAllNodes] = WalkThroughRecursively(ParentFunction, NodesToChildren, newWalkList, SortedAllNodes);
-                                % accumulate graph lines from deeper level of recursion:
-                                GraphLines = [GraphLines NewGraphLines];
+                                [newGraphNodes newRecursions SortedAllNodes] = WalkThroughRecursively(ParentFunction, NodesToChildren, newWalkList, SortedAllNodes);
+                                % accumulate graph nodes from deeper level of recursion:
+                                GraphNodes = [GraphNodes newGraphNodes];
+                                Recursions = [Recursions newRecursions];
                         else
                                 % no nodes in called function/children were found, nothing to do here
                         endif
@@ -767,7 +787,8 @@ endfunction % RemoveLineNo
 
 % MakeDotLine %<<<1
 function GraphLine = MakeDotLine(Parent, Children, nodetype)
-% generate line for .dot graph file according node type. Parent and Children are Function structures.
+% generate line for .dot graph according node type (i.e. edge in graphviz terminology).
+% Parent and Children are Function structures.
         if strcmpi(nodetype, 'recursion')
                 % is it the recursion to itselr?
                 if strcmp(Parent.Name, Children.Name)
@@ -781,7 +802,33 @@ function GraphLine = MakeDotLine(Parent, Children, nodetype)
                 app = ';';
         endif
         GraphLine = {sprintf('"%s" -> "%s" %s', Parent.GraphName, Children.GraphName, app)};
-endfunction
+endfunction % MakeDotLine
+
+% MakeDotHeader %<<<1
+function GraphLines = MakeDotHeader(Functions);
+% generate header lines for .dot graph to set box colours
+% (i.e. specifications of nodes in graphviz terminology)
+        GraphLines = {};
+
+        % print box definition for all scripts %<<<2
+        ids = [Functions.Script] == 1;
+        if any(ids)
+                Scripts = UniqueStruct(Functions(ids));
+                for i = 1:length(Scripts)
+                        GraphLines{end+1} = sprintf('%s [color=lawngreen, style=filled];', Scripts(i).GraphName);
+                endfor
+        endif % any(ids)
+
+        % print box definition for all main functions %<<<2
+        ids = [Functions.MainFunction] == 1;
+        if any(ids)
+                MainFunctions = UniqueStruct(Functions(ids));
+                for i = 1:length(MainFunctions)
+                        GraphLines{end+1} = sprintf('%s [color=lightblue, style=filled];', MainFunctions(i).GraphName);
+                endfor
+        endif % any(ids)
+
+endfunction % MakeDotHeader
 
 % UniqueStruct %<<<1
 function OutStruct = UniqueStruct(InStruct)

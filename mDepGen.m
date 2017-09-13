@@ -64,6 +64,9 @@
 ##      followed by parenthesis `(` will be plotted. Due to limitations 
 ##      of this program variables can be considered as function calls 
 ##      (i.e. code `variable(:)`).
+## @item 'plotfileframes' (1) - boolean, if set frames putting together
+##      main function and its subfunction from single m-file will be plotted.
+##      Option has no sense if plotsubfuns is set to 0.
 ## 
 ## @end table
 ##
@@ -142,6 +145,7 @@
 %       .Specials - cell of strings with special functions as set by user
 %       .Forbidden - cell of strings with forbidden (not to be plotted) functions as set by user
 %       .mFileNames - cell of strings with names of m files found in directories
+%       .PlotSubGraphs - boolean whether to plot subgraphs (function MakeDotSubGraphs)
 %
 % 2DO:
 % add recursion limit
@@ -222,13 +226,15 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
                 Settings.PlotSubFuns, ...
                 Settings.PlotSpecials, ...
                 Settings.PlotOtherFuns, ...
-                Settings.PlotOtherUnknownFuns] = parseparams (varargin, ...
+                Settings.PlotOtherUnknownFuns, ...
+                Settings.PlotSubGraphs] = parseparams (varargin, ...
                         'graphtype',            'dependency', ...
                         'plotmainfuns',         1,...
                         'plotsubfuns',          1,...
                         'plotspecials',         1,...
                         'plototherfuns',        0,...
-                        'plotunknownfuns',      0);
+                        'plotunknownfuns',      0,...
+                        'plotfileframes',        1);
 
         % -------------------- files parsing -------------------- %<<<2
         disp('Parsing m-files ...')
@@ -250,26 +256,32 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
         % -------------------- nodes and functions filtering according settings -------------------- %<<<2
         disp('Filtering results ...')
         % remove forbidden functions and calls from/to forbidden
+        % forbiddens are forbidden, thus if forbidden leads to some dependency, it will be (and should be) lost
         Functions = FilterFunctions(Functions, Forbidden);
         Nodes = FilterNodes(Nodes, Forbidden);
 
         if not(Settings.PlotSpecials)
                 % remove special functions and calls from/to specials
+                % if user disable specials, and it leads to some dependency, it will be (and should be) lost
                 Functions = FilterFunctions(Functions, Settings.Specials);
                 Nodes = FilterNodes(Nodes, Settings.Specials);
         endif
         allfuns = [Functions{:}];
-        if not(Settings.PlotMainFuns)
-                % filter for main functions:
-                Filter = unique({allfuns(logical([allfuns.MainFunction])).Name});
-                % remove special functions and calls from/to main functions:
+        if not(Settings.PlotSubFuns)
+                % filter for sub functions:
+                % if user disable sub functions, and it leads to some dependency, it should not be lost.
+                % so parent functions of nodes with subfunction are replaced by the main function of the appropriate file.
+                % ^^ 2DO XXX
+                Filter = unique({allfuns(logical([allfuns.SubFunction])).Name});
+                % remove special functions and calls from/to sub functions
                 Functions = FilterFunctions(Functions, Filter);
                 Nodes = FilterNodes(Nodes, Filter );
         endif
-        if not(Settings.PlotSubFuns)
-                % filter for sub functions:
-                Filter = unique({allfuns(logical([allfuns.SubFunction])).Name});
-                % remove special functions and calls from/to sub functions
+        if not(Settings.PlotMainFuns)
+                % filter for main functions:
+                % if user disable main functions, and it leads to some dependency, it will be (and should be) lost
+                Filter = unique({allfuns(logical([allfuns.MainFunction])).Name});
+                % remove special functions and calls from/to main functions:
                 Functions = FilterFunctions(Functions, Filter);
                 Nodes = FilterNodes(Nodes, Filter );
         endif
@@ -326,8 +338,12 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
                 [GraphNodes Recursions SortedAllNodes] = WalkThroughRecursively(Parent, Nodes, WalkList, SortedAllNodes);
 
                 % -------------------- generate plot lines -------------------- %<<<3
+                GraphLines ={};
                 % get all functions and make header lines:
-                GraphLines = MakeDotHeader([GraphNodes.ParentFunction GraphNodes.ChildrenFunction]);
+                GraphLines = [GraphLines MakeDotShapes([GraphNodes.ParentFunction GraphNodes.ChildrenFunction])];
+                if Settings.PlotSubGraphs
+                        GraphLines = [GraphLines MakeDotSubGraphs([GraphNodes.ParentFunction GraphNodes.ChildrenFunction])];
+                endif
                 % make lines for nodes:
                 for i = 1:length(GraphNodes)
                         if Recursions(i)
@@ -803,9 +819,9 @@ function GraphLine = MakeDotLine(Parent, Children, nodetype)
         GraphLine = {sprintf('"%s" -> "%s" %s', Parent.GraphName, Children.GraphName, app)};
 endfunction % MakeDotLine
 
-% MakeDotHeader %<<<1
-function GraphLines = MakeDotHeader(Functions);
-% generate header lines for .dot graph to set box colours
+% MakeDotShapes %<<<1
+function GraphLines = MakeDotShapes(Functions);
+% generate header lines for .dot graph to set shapes and colours
 % (i.e. specifications of nodes in graphviz terminology)
         GraphLines = {};
 
@@ -814,7 +830,7 @@ function GraphLines = MakeDotHeader(Functions);
         if any(ids)
                 Scripts = UniqueStruct(Functions(ids));
                 for i = 1:length(Scripts)
-                        GraphLines{end+1} = sprintf('%s [color=lawngreen, style=filled];', Scripts(i).GraphName);
+                        GraphLines{end+1} = sprintf('"%s" [color=lawngreen, style=filled];', Scripts(i).GraphName);
                 endfor
         endif % any(ids)
 
@@ -823,11 +839,50 @@ function GraphLines = MakeDotHeader(Functions);
         if any(ids)
                 MainFunctions = UniqueStruct(Functions(ids));
                 for i = 1:length(MainFunctions)
-                        GraphLines{end+1} = sprintf('%s [color=lightblue, style=filled];', MainFunctions(i).GraphName);
+                        GraphLines{end+1} = sprintf('"%s" [color=lightblue, style=filled];', MainFunctions(i).GraphName);
                 endfor
         endif % any(ids)
+        if ~isempty(GraphLines)
+                GraphLines = [{'/* start of shape definitions */'} GraphLines {'/* end of shape definitions */'}];
+        endif
+endfunction % MakeDotShapes
 
-endfunction % MakeDotHeader
+% MakeDotSubGraphs %<<<1
+function GraphLines = MakeDotSubGraphs(Functions);
+% generate definitions of subgraphs based on filename as lines for .dot graph
+        GraphLines = {};
+        filenames = unique({Functions(:).FilePathName});
+        % remove filenames with empty field (i.e. unknown functions or built-in octave functions)
+        filenames(isempty(strtrim(filenames))) = {};
+        filenames = strtrim(filenames);
+        filenames = filenames(not(strcmp(filenames, "")));
+        for i = 1:length(filenames)
+                % select functions from current filename:
+                ids = strcmp(filenames(i), {Functions(:).FilePathName});
+                % get relevant graph names:
+                GN = {Functions(ids).GraphName};
+                % do only if some graphnames were found:
+                if ~isempty(GN)
+                        GN = unique(GN);
+                                % make subgraph only if at least two functions found
+                                % i.e. there should be one main function and one/more subfunctions
+                                if length(GN) > 1
+                                        % cluster header:
+                                        GraphLines{end+1} = ["subgraph cluster" num2str(i, '%03d') " {"];
+                                        GraphLines{end+1} = "color=blue;";
+                                        % print functions from current filename:
+                                        for j = 1:length(GN)
+                                                GraphLines{end+1} = ['    "' GN{j} '";'];
+                                        endfor % length(GN)
+                                        % end cluster:
+                                        GraphLines{end+1} = "}";
+                                endif % length(GN) > 1
+                endif % ~isempty(GN)
+        endfor % length(filenames)
+        if ~isempty(GraphLines)
+                GraphLines = [{'/* start of subgraph definitions */'} GraphLines {'/* end of subgraph definitions */'}];
+        endif
+endfunction % MakeDotSubGraphs
 
 % UniqueStruct %<<<1
 function OutStruct = UniqueStruct(InStruct)

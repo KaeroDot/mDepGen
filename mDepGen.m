@@ -89,9 +89,9 @@
 % Code help and descriptions %<<<1
 % Code flow:
 % - find all .m files in directory and subdirs,
-% - for all .m files parse file and:
-%       - find all functions
-%       - find all nodes
+% - for all .m files:
+%       - parse file and find all functions (so calls of subfunctions without parenthesis can be found)
+%       - parse file second time and find all nodes
 %       - fix functions/nodes for the case of script
 % - filter functions/nodes according settings
 % - according graph type:
@@ -101,8 +101,7 @@
 %               - find starting function in sorted nodes
 %               - make recursion and generate graph lines
 % - print .dot file
-% - call graphviz
-% - call .dot->pdf conversion
+% - call graphviz to generate pdf
 %       
 % Assumptions:
 %       1, first function definition in a m-file is main function, not a subfunction.

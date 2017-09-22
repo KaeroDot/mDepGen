@@ -67,6 +67,7 @@
 ## @item 'plotfileframes' (1) - boolean, if set frames putting together
 ##      main function and its subfunction from single m-file will be plotted.
 ##      Option has no sense if plotsubfuns is set to 0.
+## @item 'debug' (0) - boolean, if set, various debug informations will be saved to multiple files.
 ## 
 ## @end table
 ##
@@ -227,22 +228,37 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
                 Settings.PlotSpecials, ...
                 Settings.PlotOtherFuns, ...
                 Settings.PlotOtherUnknownFuns, ...
-                Settings.PlotSubGraphs] = parseparams (varargin, ...
+                Settings.PlotSubGraphs, ...
+                Settings.Debug] = parseparams (varargin, ...
                         'graphtype',            'dependency', ...
                         'plotmainfuns',         1,...
                         'plotsubfuns',          1,...
                         'plotspecials',         1,...
                         'plototherfuns',        0,...
                         'plotunknownfuns',      0,...
-                        'plotfileframes',        1);
+                        'plotfileframes',       1,...
+                        'debug',                0);
 
         % -------------------- files parsing -------------------- %<<<2
         disp('Parsing m-files ...')
         % search all .m files in input directory and subdirectories:
         mFilesPathNames = GetAllmFiles(inDir, '.*.m$');
-        [tmp1 tmp2 tmp3] = cellfun(@fileparts, mFilesPathNames, 'UniformOutput', false);
+        [paths names ext] = cellfun(@fileparts, mFilesPathNames, 'UniformOutput', false);
+        % check for m files with same names:
+        [tmp, II, JJ]=unique(names);
+        id = setdiff(JJ,II);
+        if any(id)
+                nonuniquefiles = mFilesPathNames(id);
+                msg = "Files with same name found on searched paths. This can lead to unexpected results, like multiplied arrows in dependency graph. List of excessive files:";
+                for i = 1:length(nonuniquefiles)
+                        msg = sprintf("%s\n%s", msg, nonuniquefiles{i});
+                endfor
+                disp('-----------------')
+                warning(msg)
+                disp('-----------------')
+        endif
         % add all found file names to settings so they can be found even if not called followed by parenthesis
-        Settings.mFileNames = tmp2(:);
+        Settings.mFileNames = names(:);
         % remove empty cells:
         Settings.mFileNames = Settings.mFileNames(not(cellfun('isempty', Settings.mFileNames)));
         % in all m-files find functions and nodes: 
@@ -252,6 +268,11 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
         % Nodes is cell containing Node structures, one cell per file. Nodes are as found in file, i.e.
         % if something is called multiple times, it is multiple times in Nodes.
         disp(["Files parsed. " num2str(length([Functions{:}])) " function definitions and " num2str(length([Nodes{:}])) " calls (nodes) found in " num2str(length(mFilesPathNames)) " m-files."])
+        % debug
+        if Settings.Debug %<<<3
+                save('-text', [GraphFileFullPath '-debug1-functions_and_nodes_after_parsing'], 'Functions', 'Nodes')
+                disp('*** saved debug data ***')
+        endif %>>>3
 
         % -------------------- nodes and functions filtering according settings -------------------- %<<<2
         disp('Filtering results ...')
@@ -301,6 +322,11 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
         if isempty([Nodes{:}])
                 error("No nodes left after filtering. Either no nodes were found or plotting of functions related to all nodes was disabled.")
         endif
+        % debug %<<<3
+        if Settings.Debug
+                save('-text', [GraphFileFullPath '-debug2-functions_and_nodes_after_filtering'], 'Functions', 'Nodes')
+                disp('*** saved debug data ***')
+        endif %>>>3
 
         % -------------------- dependency graph -------------------- %<<<2
         if strcmpi(Settings.GraphType, 'dependency')
@@ -314,6 +340,11 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
                 % deduplicate and sort:
                 SortedAllNodes = SortNodesByParent(AllNodes);
                 % now SortedAllNodes is cell, one cell per function, with unique Nodes.
+                % debug %<<<3
+                if Settings.Debug
+                        save('-text', [GraphFileFullPath '-debug3-functions_and_nodes_after_dependency_sorting'], 'AllFunctions', 'SortedAllNodes')
+                        disp('*** saved debug data ***')
+                endif %>>>3
                 % Find first parent - cell with nodes belonging to start function:
                 ind = [];
                 for j = 1:length(SortedAllNodes)

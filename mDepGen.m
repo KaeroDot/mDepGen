@@ -67,6 +67,8 @@
 ## @item 'plotfileframes' (1) - boolean, if set frames putting together
 ##      main function and its subfunction from single m-file will be plotted.
 ##      Option has no sense if plotsubfuns is set to 0.
+## @item 'verbose' (2) - integer, if zero no output will be printed out. If 1, only status of process
+##      will be shown. If 2, all various informations will be shown.
 ## @item 'debug' (0) - boolean, if set, various debug informations will be saved to multiple files.
 ## 
 ## @end table
@@ -229,7 +231,9 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
                 Settings.PlotOtherFuns, ...
                 Settings.PlotOtherUnknownFuns, ...
                 Settings.PlotSubGraphs, ...
-                Settings.Debug] = parseparams (varargin, ...
+                Settings.Verbose, ...
+                Settings.Debug ...
+                        ] = parseparams (varargin, ...
                         'graphtype',            'dependency', ...
                         'plotmainfuns',         1,...
                         'plotsubfuns',          1,...
@@ -237,10 +241,12 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
                         'plototherfuns',        0,...
                         'plotunknownfuns',      0,...
                         'plotfileframes',       1,...
-                        'debug',                0);
+                        'verbose',              2,...
+                        'debug',                0 ...
+                        );
 
         % -------------------- files parsing -------------------- %<<<2
-        disp('Parsing m-files ...')
+        if Settings.Verbose > 0 disp('Searching m-files ...') endif
         % search all .m files in input directory and subdirectories:
         mFilesPathNames = GetAllmFiles(inDir, '.*.m$');
         [paths names ext] = cellfun(@fileparts, mFilesPathNames, 'UniformOutput', false);
@@ -262,12 +268,15 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
         % remove empty cells:
         Settings.mFileNames = Settings.mFileNames(not(cellfun('isempty', Settings.mFileNames)));
         % in all m-files find functions and nodes: 
+        if Settings.Verbose > 0 disp('Parsing m-files ...') endif
         [Functions Nodes] = cellfun(@GetAllFunDefsAndCalls, mFilesPathNames, {Settings}, 'UniformOutput', 0);
         Nodes = FillInChildrenFunctionField(Functions, Nodes, Settings);
         % now the Functions is cell containing Function structures, one cell per file, and
         % Nodes is cell containing Node structures, one cell per file. Nodes are as found in file, i.e.
         % if something is called multiple times, it is multiple times in Nodes.
-        disp(["Files parsed. " num2str(length([Functions{:}])) " function definitions and " num2str(length([Nodes{:}])) " calls (nodes) found in " num2str(length(mFilesPathNames)) " m-files."])
+        if Settings.Verbose > 0
+                disp(["Files parsed. " num2str(length([Functions{:}])) " function definitions and " num2str(length([Nodes{:}])) " calls (nodes) found in " num2str(length(mFilesPathNames)) " m-files."])
+        endif
         % debug
         if Settings.Debug %<<<3
                 save('-text', [GraphFileFullPath '-debug1-functions_and_nodes_after_parsing'], 'Functions', 'Nodes')
@@ -275,7 +284,7 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
         endif %>>>3
 
         % -------------------- nodes and functions filtering according settings -------------------- %<<<2
-        disp('Filtering results ...')
+        if Settings.Verbose > 0 disp('Filtering results ...') endif
         % remove forbidden functions and calls from/to forbidden
         % forbiddens are forbidden, thus if forbidden leads to some dependency, it will be (and should be) lost
         Functions = FilterFunctions(Functions, Forbidden);
@@ -314,7 +323,9 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
                 % remove other functions and calls from/to other functions
                 Nodes = FilterNodesByOther(Nodes);
         endif
-        disp(["Functions and Nodes filtered according settings. " num2str(length([Functions{:}])) " function definitions and " num2str(length([Nodes{:}])) " calls (nodes) left."])
+        if Settings.Verbose > 0
+                disp(["Functions and Nodes filtered according settings. " num2str(length([Functions{:}])) " function definitions and " num2str(length([Nodes{:}])) " calls (nodes) left."])
+        endif
 
         if isempty([Functions{:}])
                 error("No functions left after filtering. Either no functions were found or plotting of all functions was disabled.")
@@ -330,7 +341,7 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
 
         % -------------------- dependency graph -------------------- %<<<2
         if strcmpi(Settings.GraphType, 'dependency')
-                disp('Reordering for dependency graph ...')
+                if Settings.Verbose > 0 disp('Reordering for dependency graph ...') endif
                 AllNodes = [Nodes{:}];
                 AllFunctions = [Functions{:}];
                 % -------------------- nodes processing -------------------- %<<<3
@@ -365,8 +376,8 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
                 Nodes = SortedAllNodes{id};
                 WalkList = [{Parent.ID}];
                 % start recursion:
-                disp('Walking through function calls ...')
-                [GraphNodes Recursions SortedAllNodes] = WalkThroughRecursively(Parent, Nodes, WalkList, SortedAllNodes);
+                if Settings.Verbose > 0 disp('Walking through function calls ...') endif
+                [GraphNodes Recursions SortedAllNodes] = WalkThroughRecursively(Parent, Nodes, WalkList, SortedAllNodes, Settings);
 
                 % -------------------- generate plot lines -------------------- %<<<3
                 GraphLines ={};
@@ -391,7 +402,7 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
         endif
 
         % -------------------- final graph generation -------------------- %<<<2
-        disp('Writing graph ...')
+        if Settings.Verbose > 0 disp('Writing graph ...') endif
         % join header, graph lines and ending together
         Graph = '/* Generated by mDepGen */';
         Graph = [Graph "\ndigraph dep {\nnode [shape = oval];"];
@@ -404,7 +415,7 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
         fid = fopen ([GraphFileFullPath '.dot'],'w');
         fprintf(fid, Graph);
         fclose(fid);
-        disp("Graph written")
+        if Settings.Verbose > 1 disp("Graph written") endif
 
         % -------------------- pdf file creation -------------------- %<<<2
         % call GraphViz
@@ -414,9 +425,9 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
         if STATUS
                 error(["GraphViz failed. Output was:\n" OUTPUT "\nCommand was:\n" cmd])
         else
-                disp("Pdf created")
+                if Settings.Verbose > 1 disp("Pdf created") endif
         endif
-        disp("Finished")
+        if Settings.Verbose > 1 disp("Finished") endif
 
 endfunction % mDepGen
 
@@ -742,7 +753,7 @@ function ID = GetFunctionID(FileName, FunctionName='')
 endfunction % GetFunctionID
 
 % WalkThroughRecursively %<<<1
-function [GraphNodes Recursions SortedAllNodesOut] = WalkThroughRecursively(Parent, Nodes, WalkList, SortedAllNodes)
+function [GraphNodes Recursions SortedAllNodesOut] = WalkThroughRecursively(Parent, Nodes, WalkList, SortedAllNodes, Settings)
 % function walks through functions and prepares graph lines for dependency graph
 % function is able to recognize recursions in m-files callings thanks the WalkList
         GraphNodes = struct();
@@ -750,16 +761,18 @@ function [GraphNodes Recursions SortedAllNodesOut] = WalkThroughRecursively(Pare
         Recursions = [];
         % for all nodes/children
         for i=1:length(Nodes)
-                disp(['Node ' num2str(i) ' of ' num2str(length(Nodes)) ': ' Parent.ID ' -> ' Nodes(i).ChildrenFunction.ID])
+                if Settings.Verbose > 1 
+                        disp(['Node ' num2str(i) ' of ' num2str(length(Nodes)) ': ' Parent.ID ' -> ' Nodes(i).ChildrenFunction.ID])
+                endif
                 % check for recursions:
                 if any(strcmpi(WalkList, Nodes(i).ChildrenFunction.ID))
-                        disp('recursion found')
+                        if Settings.Verbose > 1 disp('recursion found') endif
                         % recursion found, add node to graph, do not search for nodes in called function/children:
                         GraphNodes(end+1) = Nodes(i);
                         Recursions(end+1) = 1;
                         % when recursion, do not continue into deeper level of dependency
                 else
-                        disp('no recursion, adding graph line')
+                        if Settings.Verbose > 1 disp('no recursion, adding graph line') endif
                         % no recursion, add node to graph:
                         GraphNodes(end+1) = Nodes(i);
                         Recursions(end+1) = 0;
@@ -768,7 +781,7 @@ function [GraphNodes Recursions SortedAllNodesOut] = WalkThroughRecursively(Pare
                         for j = 1:length(SortedAllNodes)
                                 ind(end+1) = strcmp(Nodes(i).ChildrenFunction.ID, SortedAllNodes{j}(1).ParentFunction.ID);
                         endfor
-                        disp('found children')
+                        if Settings.Verbose > 1 disp('found children') endif
                         if any(ind)
                                 id = find(ind);
                                 % if multiple found - some error. sorting is not working properly. so this is error:
@@ -779,8 +792,8 @@ function [GraphNodes Recursions SortedAllNodesOut] = WalkThroughRecursively(Pare
                                 ParentFunction = Nodes(i).ChildrenFunction;
                                 NodesToChildren = SortedAllNodes{id};
                                 newWalkList = [WalkList {ParentFunction.ID}];
-                                disp(['going deeper to ' ParentFunction.ID])
-                                [newGraphNodes newRecursions SortedAllNodes] = WalkThroughRecursively(ParentFunction, NodesToChildren, newWalkList, SortedAllNodes);
+                                if Settings.Verbose > 1 disp(['going deeper to ' ParentFunction.ID]) endif
+                                [newGraphNodes newRecursions SortedAllNodes] = WalkThroughRecursively(ParentFunction, NodesToChildren, newWalkList, SortedAllNodes, Settings);
                                 % accumulate graph nodes from deeper level of recursion:
                                 GraphNodes = [GraphNodes newGraphNodes];
                                 Recursions = [Recursions newRecursions];
@@ -798,7 +811,7 @@ function [GraphNodes Recursions SortedAllNodesOut] = WalkThroughRecursively(Pare
         endfor
         id = find(ind);
         if not(isempty(id))
-                disp(['removing parent ' Parent.ID])
+                if Settings.Verbose > 1 disp(['removing parent ' Parent.ID]) endif
                 % if multiple found - some error. sorting is not working properly. so this is error:
                 if length(id) > 1
                         error('Multiple cells containing the parent were found. Sorting is not working properly. This is internal error.')

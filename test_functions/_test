@@ -1,3 +1,0 @@
-#!/usr/bin/octave-cli --norc
-cd ..
-mDepGen('test_functions/', 'main', '_test_result', {}, {}, 'plototherfuns',1, 'plotunknownfuns',1)

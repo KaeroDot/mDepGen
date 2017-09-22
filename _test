@@ -1,0 +1,4 @@
+#!/bin/bash
+cd test_functions
+octave-cli --norc --silent _test.m
+diff -s _expected_output.dot _test_result.dot

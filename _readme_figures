@@ -1,0 +1,4 @@
+#!/bin/bash
+cd readme_figures
+octave-cli --norc --silent _readme_figures.m
+./_convertallpdf

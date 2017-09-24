@@ -1,81 +1,126 @@
 ## Copyright (C) 2017 Martin Šíra %<<<1
 ##
+## The MIT License (MIT)
+##
+## Permission is hereby granted, free of charge, to any person
+## obtaining a copy of this software and associated
+## documentation files (the "Software"), to deal in the
+## Software without restriction, including without limitation
+## the rights to use, copy, modify, merge, publish, distribute,
+## sublicense, and/or sell copies of the Software, and to
+## permit persons to whom the Software is furnished to do so,
+## subject to the following conditions:
+##
+## The above copyright notice and this permission notice shall
+## be included in all copies or substantial portions of the
+## Software.
+##
+## THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY
+## KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+## WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+## PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS
+## OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+## OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+## OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+## SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ## -*- texinfo -*-
 ## @deftypefn  {Function File} @var{} = mDepGen (@var{inDir}, @var{StartFunction}, @var{GraphFile})
-## @deftypefnx {Function File} @var{} = mDepGen (@var{inDir}, @var{StartFunction}, @var{GraphFile}, @var{Specials})
-## @deftypefnx {Function File} @var{} = mDepGen (@var{inDir}, @var{StartFunction}, @var{GraphFile}, @var{Specials}, @var{Forbidden})
-## @deftypefnx {Function File} @var{} = mDepGen (@var{inDir}, @var{StartFunction}, @var{GraphFile}, @var{Specials}, @var{Forbidden}, @var{property}, @var{value}, ...)
+## @deftypefnx {Function File} @var{} = mDepGen (..., @var{Specials})
+## @deftypefnx {Function File} @var{} = mDepGen (..., @var{Specials}, @var{Forbidden})
+## @deftypefnx {Function File} @var{} = mDepGen (..., @var{Specials}, @var{Forbidden}, @var{property}, @var{value}, ...)
 ##
-## Function parse all m-files in string @var{inDir}, identifies all functions 
+## Function parse all m-files in directory @var{inDir}, identifies all functions 
 ## and calls, finds out which function calls which one, creates graph 
-## @var{GraphFile} in Graphviz format starting from @var{StartFunction},
-## calls Graphviz to generate graph in pdf format.
+## @var{GraphFile} in Graphviz format starting from function @var{StartFunction},
+## and calls Graphviz to generate graph in pdf format.
 ##
-## This function does not provide syntax analysis of m files, it only does some 
+## This function does not provide syntax analysis of m-files, it only does some 
 ## regular expression matching.
 ## 
 ## Recursions are identified and plotted on graph by different colour.
-## m-Files in sub directories are also parsed, however function `addpath`
-## is not understood.
+## m-files in sub directories are also parsed, however function @code{addpath}
+## is not yet understood.
 ## 
-## Function calls in source code of m-files are identified as being followed
-## by parenthesis `(`. However some functions are called without 
-## parenthesis (like code `t=tic;`). These functions will be identified 
+## Function calls in are identified as something being followed
+## by parenthesis '('. However some functions are called without 
+## parenthesis (like code @code{t=tic;}). These functions will be identified 
 ## only if:
-## @table @samp
-## @item called function is main function in an m-file,
-## @item called function is sub function in an m-file,
-## @item called function is listed in @var{Specials}
+## @table @asis
+## @item 1, called function is main function in a parsed m-file,
+## @item 2, called function is sub function in a parsed m-file,
+## @item 3, called function is listed in @var{Specials}.
 ## @end table
+## If @qcode{"plotunknownfuns"} is set to 1 (see lower), false positives can 
+## be generated, for example in code @code{a=variable(5)}. This can be also
+## prevented using @var{Forbidden}.
 ## 
-## Input variables in detail:
-## @table @samp
-## @item @var{inDir} - Directory containing m-files to be processed.
-## @item @var{StartFunction} - File name of a starting function of the
-##      graph. Either a full path to the m-file or only a file name.
-##      In the last case a @var{inDir} will be prepended to the file name.
-## @item @var{GraphFileName} - File name of a resulted graph. Either 
-##      a full path of the graph or only a file name. In the last case 
-##      a @var{inDir} will be prepended to the file name.
-## @item @var{Specials} - Cell of character string with function names.
-##      These functions will be always displayed in the graph.
-## @item @var{Forbidden} - Cell of character string with function names.
-##      These functions will not be displayed in the graph.
+## 
+## Input variables:
+## @table @asis
+## @item @var{inDir}
+## Directory with m-files to be processed.
+## @item @var{StartFunction} 
+## File name of a starting function of the graph. Either 
+## a full path to the m-file or only a file name. In the 
+## last case @var{inDir} will be prepended to the file name.
+## @item @var{GraphFileName}
+## File name of a resulted graph. Either a full path of the graph 
+## or only a file name. In the last case a @var{inDir} will be 
+## prepended to the file name.
+## @item @var{Specials} 
+## Cell of character strings with function names. These functions 
+## will be always displayed in the graph.
+## @item @var{Forbidden} 
+## Cell of character strings with function names. These functions 
+## will never be displayed in the graph.
 ## @end table
 ##
-## Behaviour of graph can be fine tuned by @var{property} @var{value} pairs.
+## Graph can be fine tuned by @var{property} - @var{value} pairs.
 ## Default value is in brackets.
-## @table @samp
-## @item 'graphtype' (dependency) - string, type of output graph. Possible values:
-##      @table @samp
-##      @item 'dependency' - Graph of dependency.
+## @table @asis
+## @item "graphtype"
+## ("dependency"), string, type of output graph. Possible values:
+##      @table @asis
+##      @item "dependency" 
+##      Graph showing dependency of m-files. For now it is the 
+##      only possibility. More maybe will come in future.
 ##      @end table
-##      For now it is the only possibility. More will maybe come in future.
-## @item 'plotmainfuns' (1) - boolean, main functions (first one in m-file) will be plotted.
-##      Be carefull to switching this off. This could result in empty graph.
-## @item 'plotsubfuns' (1) - boolean, sub functions (second and others in m-file) will be 
+## @item 'plotmainfuns' 
+## (1), boolean, nonzero means main functions (first one in m-file)
+## will be plotted. Be carefull to switching this off. This could 
+## result in empty graph.
+## @item 'plotsubfuns'
+## (1), boolean, nonzero means sub functions (second and others in 
+##      m-file) will be plotted.
+## @item 'plotspecials'
+## (1), boolean, nonzero means functions listed in Specials will be 
 ##      plotted.
-## @item 'plotspecials' (1) - boolean, functions listed in Specials will be 
-##      plotted.
-## @item 'plototherfuns' (1) - boolean, function calls followed by parenthesis `(` and 
-##      existing in Octave namespace will be plotted.
-## @item 'plotunknownfuns' (1) - boolean, anything resembling function call (word 
-##      followed by parenthesis `(` will be plotted. Due to limitations 
+## @item 'plototherfuns'
+## (1), boolean, nonzero means functions followed by parenthesis '(' and 
+##      existing in Octave name space will be plotted.
+## @item 'plotunknownfuns'
+## (1), boolean, nonzero means anything resembling function call (word 
+##      followed by parenthesis '(' will be plotted. Due to limitations 
 ##      of this program variables can be considered as function calls 
-##      (i.e. code `variable(:)`).
-## @item 'plotfileframes' (1) - boolean, if set frames putting together
-##      main function and its subfunction from single m-file will be plotted.
-##      Option has no sense if plotsubfuns is set to 0.
-## @item 'verbose' (2) - integer, if zero no output will be printed out. If 1, only status of process
-##      will be shown. If 2, all various informations will be shown.
-## @item 'debug' (0) - boolean, if set, various debug informations will be saved to multiple files.
+##      (i.e. code @code{variable(:)}).
+## @item 'plotfileframes'
+##      (1), boolean, if set frames putting together main function and 
+##      its subfunction from single m-file will be plotted. Option has 
+##      no sense if plotsubfuns is set to 0.
+## @item 'verbose',
+##      (2), integer, if set to zero no output will be printed out. If 
+##      set to 1, only status of process will be shown. If set to 2,
+##      all various informations will be shown.
+## @item 'debug'
+##      (0), boolean, if set, various debug informations will be saved
+##      to multiple files.
 ## 
 ## @end table
 ##
 ## Example:
 ## @example
-## mDepGen('.', 'mDepGen', 'example_graph', @{'fopen', 'fgetl'@}, @{'PrepareLine'@}, 'plototherfuns', 1)
+## mDepGen('.', 'mDepGen', 'example_graph', @{'fopen', 'fclose'@}, @{'PrepareLine'@}, 'plototherfuns', 1)
 ## @end example
 ## @end deftypefn
 
@@ -84,7 +129,7 @@
 ## Version: 0.1
 ## Keywords: dependency, graph
 ## Script quality:
-##   Tested: no
+##   Tested: yes
 ##   Contains help: yes
 ##   Contains example in help: yes
 ##   Contains tests: no

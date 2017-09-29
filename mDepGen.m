@@ -344,9 +344,11 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
         allfuns = [Functions{:}];
         if not(Settings.PlotSubFuns)
                 % filter for sub functions:
-                % if user disable sub functions, and it leads to some dependency, it should not be lost.
-                % so parent functions of nodes with subfunction are replaced by the main function of the appropriate file.
-                % ^^ 2DO XXX
+                % if user disable sub functions, and it leads to some dependency, it is not lost.
+                % parent functions of nodes with subfunction are replaced by the main function (or script) of
+                % the appropriate file (i.e. cell of nodes):
+                [Functions, Nodes] = ReplaceSubByMain(Functions, Nodes);
+                % and now remove subfunctions:
                 Filter = unique({allfuns(logical([allfuns.SubFunction])).Name});
                 % remove special functions and calls from/to sub functions
                 Functions = FilterFunctions(Functions, Filter);
@@ -1076,6 +1078,73 @@ function [Nodes] = FilterNodes(Nodes, Filter);
                 endfor % length(Nodes)
         endif % ~iempty(Filter)
 endfunction % FilterNodes
+
+% ReplaceSubByMain %<<<1
+function [Functions, Nodes] = ReplaceSubByMain(Functions, Nodes)
+% replace all subfunctions in nodes by its parents,
+% thus subfunctions will be removed however dpendency is not lost.
+% preserves cells with arrays of structures
+        for i = 1:length(Nodes)
+                if ~isempty(Nodes{i})
+                        for j = 1:length(Nodes{i})
+                                if Nodes{i}(j).ParentFunction.SubFunction
+                                        Nodes{i}(j).ParentFunction = FindMainOfSub(Nodes{i}(j).ParentFunction.ID, Functions);
+                                endif % Nodes{i}(j).ParentFunction.SubFunction
+                        endfor % length(Nodes{i})
+                endif % ~isempty(Nodes{i})
+        endfor % length(Nodes)
+endfunction % ReplaceSubByMain
+
+% FindMainOfSub %<<<1
+function Function = FindMainOfSub(SubID, Functions)
+% finds main function (or script) of a subfunction SubID and return it
+% it is supposed the subfunction is in the same cell as its main function (or script)
+        for i = 1:length(Functions)
+                % for current cell find the subfunction:
+                ids = strcmp({Functions{i}.ID}, SubID);
+                if any(ids)
+                        if sum(ids) > 1
+                                % too many sub functions in the current cell,
+                                % this should not happen!
+                                error('Too many sub functions in a single cell of Functions! This is internal error.')
+                        endif
+                        % subfunction is found
+                        % try to find main function in the current cell:
+                        ids = [Functions{i}.MainFunction];
+                        if any(ids)
+                                % main function found
+                                if sum(ids) > 1
+                                        % too many main functions in the current cell,
+                                        % this should not happen!
+                                        error('Too many main functions in a single cell of Functions! This is internal error.')
+                                endif
+                                % return the main function and quit:
+                                Function = Functions{i}( find(ids)(1) );
+                                return
+                        endif
+                        % main function not found, so try to 
+                        % find script in the current cell:
+                        ids = [Functions{i}.Script];
+                        if any(ids)
+                                % script found
+                                if sum(ids) > 1
+                                        % too many scripts in the current cell,
+                                        % this should not happen!
+                                        error('Too many scripts in a single cell of Functions! This is internal error.')
+                                endif
+                                % return the script (main function of subfunction) and quit:
+                                Function = Functions{i}( find(ids)(1) );
+                                return
+                        endif
+                        % no main function nor script was found,
+                        % this should not happen!
+                        error('No main function nor script found in a cell of Functions where required subfunction was found! This is internal error.')
+                endif
+        endfor
+        % no main function or script related to sub function found,
+        % this should not happen!
+        error('Required subfunctions was not found in any cell of Functions! This is internal error.')
+endfunction % FindMainOfSub
 
 % FilterNodesByOther %<<<1
 function [Nodes] = FilterNodesByOther(Nodes);

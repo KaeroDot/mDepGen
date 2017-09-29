@@ -88,22 +88,27 @@
 ##      @end table
 ## @item 'plotmainfuns' 
 ## (1), boolean, nonzero means main functions (first one in m-file)
-## will be plotted. Be carefull to switching this off. This could 
-## result in empty graph.
-## @item 'plotsubfuns'
+##      will be plotted. Be carefull to switching this off. This could
+##      result in empty graph.
+##      If disabled, dependencies from main functions will be lost.
+## @item 'hidesubfuns'
 ## (1), boolean, nonzero means sub functions (second and others in 
-##      m-file) will be plotted.
+##      m-file) will be hidden. If so, dependencies will be inherited
+##      to main functions (or scripts, where appropriate).
 ## @item 'plotspecials'
 ## (1), boolean, nonzero means functions listed in Specials will be 
 ##      plotted.
+##      If disabled, dependencies from special functions will be lost.
 ## @item 'plototherfuns'
 ## (1), boolean, nonzero means functions followed by parenthesis '(' and 
 ##      existing in Octave name space will be plotted.
+##      If disabled, dependencies from other functions will be lost.
 ## @item 'plotunknownfuns'
 ## (1), boolean, nonzero means anything resembling function call (word 
 ##      followed by parenthesis '(' will be plotted. Due to limitations 
 ##      of this program variables can be considered as function calls 
 ##      (i.e. code @code{variable(:)}).
+##      If disabled, dependencies from unknown functions will be lost.
 ## @item 'plotfileframes'
 ##      (1), boolean, if set frames putting together main function and 
 ##      its subfunction from single m-file will be plotted. Option has 
@@ -210,7 +215,7 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
         % Specials = {'tic'};
         % varargin = { 'graphtype',            'dependency', ...
                         % 'plotmainfuns',         1,...
-                        % 'plotsubfuns',          1,...
+                        % 'hidesubfuns',          0,...
                         % 'plotspecials',         1,...
                         % 'plototherfuns',        1,...
                         % 'plotunknownfuns',      0};
@@ -281,7 +286,7 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
                         ] = parseparams (varargin, ...
                         'graphtype',            'dependency', ...
                         'plotmainfuns',         1,...
-                        'plotsubfuns',          1,...
+                        'hidesubfuns',          0,...
                         'plotspecials',         1,...
                         'plototherfuns',        0,...
                         'plotunknownfuns',      0,...
@@ -289,6 +294,7 @@ function mDepGen(inDir, StartFunction, GraphFile='Graph', Specials={}, Forbidden
                         'verbose',              2,...
                         'debug',                0 ...
                         );
+        Settings.PlotSubFuns = not(Settings.PlotSubFuns);
 
         % -------------------- files parsing -------------------- %<<<2
         if Settings.Verbose > 0 disp('Searching m-files ...') endif

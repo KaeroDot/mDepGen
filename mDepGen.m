@@ -575,9 +575,9 @@ function [newFunctions newNodes] = GetAllFunDefsAndCalls(FilePathName, Settings)
 
         % open the m-file %<<<2
         fid = fopen (FilePathName);
-        Line = fgetl (fid);
         % parse line by line and search now only function definitions %<<<2
         while not(feof(fid))
+                Line = fgetl(fid);
                 % strip lines of comments and content inside strings:
                 Line = PrepareLine(Line);
                 % get function definition
@@ -612,7 +612,6 @@ function [newFunctions newNodes] = GetAllFunDefsAndCalls(FilePathName, Settings)
                         LineNumbers(end+1) = LineNo;
                 endif
                 % for next loop iteration:
-                Line = fgetl(fid);
                 LineNo = LineNo + 1;
         end
         fclose(fid);

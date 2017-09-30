@@ -131,7 +131,7 @@
 
 ## Author: Martin Šíra <msiraATcmi.cz>
 ## Created: 2017
-## Version: 0.1
+## Version: 0.2
 ## Keywords: dependency, graph
 ## Script quality:
 ##   Tested: yes

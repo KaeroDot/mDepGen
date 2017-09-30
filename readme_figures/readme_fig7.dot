@@ -18,6 +18,8 @@ node [shape = oval];
 "FillInChildrenFunctionField\n (mDepGen)" -> "GetFunctionGraphName\n (mDepGen)" ;
 "mDepGen" -> "FilterFunctions\n (mDepGen)" ;
 "mDepGen" -> "FilterNodes\n (mDepGen)" ;
+"mDepGen" -> "ReplaceSubByMain\n (mDepGen)" ;
+"ReplaceSubByMain\n (mDepGen)" -> "FindMainOfSub\n (mDepGen)" ;
 "mDepGen" -> "FilterNodesByOtherUnknown\n (mDepGen)" ;
 "mDepGen" -> "FilterNodesByOther\n (mDepGen)" ;
 "mDepGen" -> "RemoveLineNo\n (mDepGen)" ;

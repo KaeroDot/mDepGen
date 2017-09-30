@@ -2,6 +2,7 @@
 digraph dep {
 node [shape = oval];
 /* start of shape definitions */
+"script" [color=lawngreen, style=filled];
 "main" [color=lightblue, style=filled];
 "dependency_1" [color=lightblue, style=filled];
 "dependency_2" [color=lightblue, style=filled];
@@ -18,7 +19,13 @@ color=blue;
     "sub_main\n (main)";
     "sub_main_called_without_parenthesis\n (main)";
 }
+subgraph cluster006 {
+color=blue;
+    "script";
+    "sub_script\n (script)";
+}
 /* end of subgraph definitions */
+"script" -> "main" ;
 "main" -> "dependency_1" ;
 "dependency_1" -> "dependency_2" ;
 "dependency_2" -> "dependency_3" ;
@@ -31,4 +38,6 @@ color=blue;
 "main" -> "tic" ;
 "main" -> "toc" ;
 "main" -> "disp" ;
+"script" -> "sub_script\n (script)" ;
+"sub_script\n (script)" -> "called_by_subfunction" ;
 }

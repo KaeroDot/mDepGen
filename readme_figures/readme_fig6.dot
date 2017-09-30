@@ -2,15 +2,20 @@
 digraph dep {
 node [shape = oval];
 /* start of shape definitions */
+"script" [color=lawngreen, style=filled];
 "main" [color=lightblue, style=filled];
 "dependency_1" [color=lightblue, style=filled];
 "dependency_2" [color=lightblue, style=filled];
 "dependency_3" [color=lightblue, style=filled];
+"called_by_subfunction" [color=lightblue, style=filled];
 /* end of shape definitions */
+"script" -> "main" ;
 "main" -> "dependency_1" ;
 "dependency_1" -> "dependency_2" ;
 "dependency_2" -> "dependency_3" ;
 "dependency_3" -> "dependency_1"  [color=red];
 "dependency_3" -> "dependency_3"  [color=red dir=back];
 "main" -> "dependency_2" ;
+"main" -> "called_by_subfunction" ;
+"script" -> "called_by_subfunction" ;
 }

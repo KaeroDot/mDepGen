@@ -131,7 +131,7 @@
 
 ## Author: Martin Šíra <msiraATcmi.cz>
 ## Created: 2017
-## Version: 0.2
+## Version: 0.3
 ## Keywords: dependency, graph
 ## Script quality:
 ##   Tested: yes
@@ -750,8 +750,8 @@ function [Calls, Line]= ParseLineGetFunctionCallsWithParenthesis(Line)
         %aaa=5(iii)
         %>>>2
         if ~isempty(T)
-                Calls = T{:};
-                % remove match from line:
+                Calls = [T{:}];
+                % remove matches from line:
                 for i = 1:length(S)
                         Line(S(i):E(i)) = repmat(' ', 1, E(i)-S(i)+1);
                 endfor
